@@ -1,0 +1,21 @@
+# Build outputs
+/dist/
+/miniprobe-server
+/miniprobe-agent
+
+# Runtime data
+/data/*.json
+/data/*.tmp
+/data/*.db
+/data/*.sqlite*
+*.log
+*.pid
+
+# Test / coverage
+coverage.out
+*.test
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MiniProbe</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <section id="loginView" class="login-wrap hidden">
+    <form id="loginForm" class="login-card">
+      <div class="login-brand">MiniProbe</div>
+      <div class="login-sub">只读监控面板</div>
+      <label>Dashboard 密码
+        <input id="loginPass" type="password" autocomplete="current-password" required autofocus>
+      </label>
+      <button class="btn primary wide" type="submit">进入 Dashboard</button>
+      <div id="loginError" class="form-error"></div>
+    </form>
+  </section>
+
+  <section id="appView" class="hidden">
+    <header>
+      <div><span class="brand">MiniProbe</span><span class="sub">轻量 VPS 探针</span></div>
+      <div class="header-actions">
+        <span id="summary" class="small"></span>
+        <button id="logoutBtn" class="btn hidden" type="button">退出</button>
+      </div>
+    </header>
+    <main>
+      <div id="nodeWarning" class="warning-banner hidden"></div>
+      <div id="grid" class="grid"></div>
+    </main>
+  </section>
+
+  <section id="disabledView" class="login-wrap hidden">
+    <div class="login-card">
+      <div class="login-brand">MiniProbe</div>
+      <div class="login-sub">Dashboard 已关闭</div>
+      <p class="hint">请通过服务器 SSH 执行 <code>miniprobe</code> 修改 Dashboard 模式。</p>
+    </div>
+  </section>
+
+  <script src="/app.js"></script>
+</body>
+</html>
