@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.0-alpha`
+当前版本：`v0.4.1-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 最简单的使用方式：Direct IP
 
-发布 `v0.4.0-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.1-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -548,7 +548,7 @@ SHA256SUMS
 
 # 12. 当前版本说明
 
-`v0.4.0-alpha` 的重点是把实际使用流程和安全边界定下来：
+`v0.4.1-alpha` 在保持现有安全边界和部署方式不变的基础上，重点优化 Dashboard 的信息层级、紧凑度和隐私显示：
 
 ```text
 Direct IP 默认部署
@@ -563,6 +563,11 @@ Telegram 掉线 / 恢复 / 流量提醒
 15 节点软上限
 2 GiB 存储硬预算
 签名 Agent 配置同步
+Dashboard 不显示节点公网 IP
+节点名前按名称/标签识别常见国家或地区旗帜
+系统信息增加 Debian / Ubuntu / Alpine 等识别图标
+月租 / 到期剩余时间进入节点卡片
+线路质量区域强化层级并区分超时 / N/A
 ```
 
 目前不追求商用规模，也不加入远程服务器管理功能。

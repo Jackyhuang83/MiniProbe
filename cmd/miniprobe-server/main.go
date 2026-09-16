@@ -481,6 +481,9 @@ func (s *server) nodesAPI(w http.ResponseWriter, r *http.Request) {
 		v.Currency = cfg.Currency
 		v.ExpireAt = cfg.ExpireAt
 		v.Tags = append([]string(nil), cfg.Tags...)
+		// ObservedIP is useful for local SSH administration, but the Dashboard
+		// API must not expose node public IPs (especially in Public mode).
+		v.ObservedIP = ""
 		v.Online = !v.LastSeen.IsZero() && now.Sub(v.LastSeen) < 20*time.Second
 		out = append(out, v)
 	}
