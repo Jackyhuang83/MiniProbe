@@ -1,0 +1,36 @@
+name: Import MiniProbe v0.4.1-alpha
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract v0.4.1-alpha source
+        run: |
+          unzip -o MiniProbe-v0.4.1-alpha-github-ready.zip
+          rm -f MiniProbe-v0.4.1-alpha-github-ready.zip
+
+      - name: Remove temporary workflow
+        run: |
+          rm -f .github/workflows/import-v041.yml
+
+      - name: Commit source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes"
+            exit 0
+          fi
+          git commit -m "Import MiniProbe v0.4.1-alpha source"
+          git push
