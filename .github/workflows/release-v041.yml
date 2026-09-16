@@ -1,0 +1,44 @@
+name: Release MiniProbe v0.4.1-alpha
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Build release binaries
+        run: make release
+
+      - name: Create pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.4.1-alpha \
+            dist/miniprobe-server-linux-amd64 \
+            dist/miniprobe-server-linux-arm64 \
+            dist/miniprobe-agent-linux-amd64 \
+            dist/miniprobe-agent-linux-arm64 \
+            dist/miniprobe-agent-linux-armv7 \
+            dist/SHA256SUMS \
+            --target main \
+            --title "MiniProbe v0.4.1-alpha" \
+            --prerelease \
+            --notes-file CHANGELOG-v0.4.1-alpha.md
