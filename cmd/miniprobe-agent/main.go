@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	agentVersion  = "0.4.2-alpha"
+	agentVersion  = "0.4.3-alpha"
 	probeInterval = 10 * time.Second
 )
 

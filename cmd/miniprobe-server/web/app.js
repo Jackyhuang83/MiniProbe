@@ -69,7 +69,13 @@ async function api(url, opts={}){
 }
 
 function show(id){['loginView','appView','disabledView'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id))}
-function metricIcon(kind){return {cpu:'▣',mem:'▥',disk:'▱',traffic:'↕'}[kind]||'•'}
+const METRIC_ICONS={
+  cpu:'<svg class="metric-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>',
+  mem:'<svg class="metric-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 9v6M12 9v6M16 9v6M7 3v3M11 3v3M15 3v3M7 18v3M11 18v3M15 18v3"/></svg>',
+  disk:'<svg class="metric-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M7 14h10M8 9h8"/><circle cx="8" cy="16" r=".8" fill="currentColor" stroke="none"/></svg>',
+  traffic:'<svg class="metric-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v15M4.5 7.5 8 4l3.5 3.5M16 20V5M12.5 16.5 16 20l3.5-3.5"/></svg>'
+};
+function metricIcon(kind){return METRIC_ICONS[kind]||''}
 function metric(kind,name,used,total,detail=''){
   const p=pct(used,total),d=detail||(total?`${fmtBytes(used)} / ${fmtBytes(total)}`:'-');
   return `<div class="metric ${kind}"><div class="metric-head"><span class="metric-name"><i>${metricIcon(kind)}</i>${name}</span><strong>${total?p.toFixed(1)+'%':'-'}</strong></div><div class="bar"><div class="fill" style="width:${total?p:0}%"></div></div><div class="metric-detail">${d}</div></div>`;
@@ -80,7 +86,7 @@ function cpu(n){
 }
 function trafficMetric(n){
   const t=n.traffic||{},limit=Number(n.monthly_traffic_limit||0),used=Number(t.used_bytes||0),p=limit?pct(used,limit):0;
-  if(!limit) return `<div class="metric traffic"><div class="metric-head"><span class="metric-name"><i>${metricIcon('traffic')}</i>流量</span><strong class="muted-strong">未设置</strong></div><div class="bar"><div class="fill" style="width:0"></div></div><div class="metric-detail">未设置配额</div></div>`;
+  if(!limit) return `<div class="metric traffic"><div class="metric-head"><span class="metric-name"><i>${metricIcon('traffic')}</i>流量</span><strong class="muted-strong">—</strong></div><div class="bar bar-empty"><div class="fill" style="width:0"></div></div><div class="metric-detail">未设置配额</div></div>`;
   return `<div class="metric traffic"><div class="metric-head"><span class="metric-name"><i>${metricIcon('traffic')}</i>流量</span><strong>${p.toFixed(1)}%</strong></div><div class="bar"><div class="fill" style="width:${p}%"></div></div><div class="metric-detail">${fmtTraffic(used)} / ${fmtTraffic(limit)}</div></div>`;
 }
 
@@ -142,16 +148,15 @@ function card(n){
   const name=n.display_name||n.node_id;
   const probeProtocol=String(n.probe_protocol||'').toUpperCase();
   const tagHtml=(n.tags||[]).filter(x=>String(x).toUpperCase()!==region).map(x=>`<span class="tag">${esc(x)}</span>`).join('');
-  const planBody=(exp.text||price)?`<span class="plan-primary ${exp.days!==null&&exp.days<=7?'urgent':''}">${esc(exp.text||'未设置到期')}</span><span>${esc(price||'未设置价格')}</span>`:`<span class="plan-primary">未设置</span><span>套餐信息</span>`;
+  const planBody=(exp.text||price)?`<span class="plan-primary ${exp.days!==null&&exp.days<=7?'urgent':''}">${esc(exp.text||'未设置到期')}</span><span>${esc(price||'未设置价格')}</span>`:`<span class="plan-primary">未设置</span>`;
   return `<article class="card ${n.online?'':'offline-card'}">
     <div class="top">
-      <div class="title"><span class="dot ${n.online?'':'off'}"></span><span class="flag">${regionFlag(n)}</span><span class="title-text">${esc(name)}</span></div>
-      <div class="top-right">${osMark(os)}<span class="status-text">${n.online?'在线':'离线'}</span></div>
+      <div class="title"><span class="flag">${regionFlag(n)}</span><span class="title-text">${esc(name)}</span></div>
+      <div class="top-right"><span class="dot ${n.online?'':'off'}"></span><span class="status-text">${n.online?'在线':'离线'}</span></div>
     </div>
     <div class="chips">
       <span class="chip">${n.online?`在线 ${uptime(m.uptime_seconds)}`:'等待恢复'}</span>
-      ${price?`<span class="chip">${esc(price)}</span>`:''}
-      <span class="chip ghost">${esc(os.label)}${i.virtualization?` · ${esc(String(i.virtualization).toUpperCase())}`:''}${i.arch?` · ${esc(i.arch)}`:''}</span>
+      <span class="chip ghost os-chip">${osMark(os)}<span>${esc(os.label)}${i.virtualization?` · ${esc(String(i.virtualization).toUpperCase())}`:''}${i.arch?` · ${esc(i.arch)}`:''}</span></span>
     </div>
 
     <div class="metrics-grid">
