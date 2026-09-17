@@ -1,0 +1,65 @@
+name: Import MiniProbe Source Package
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find source package
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE="$(find . -maxdepth 1 -type f -name 'MiniProbe-v*-github-ready.zip' -printf '%f\n' | sort -V | tail -n1)"
+          if [ -z "$PACKAGE" ]; then
+            echo "No MiniProbe source package found."
+            exit 1
+          fi
+          echo "package=$PACKAGE" >> "$GITHUB_OUTPUT"
+          echo "Using: $PACKAGE"
+
+      - name: Extract source package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/miniprobe-import
+          mkdir -p /tmp/miniprobe-import
+          unzip -q "${{ steps.package.outputs.package }}" -d /tmp/miniprobe-import
+
+      - name: Import source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            /tmp/miniprobe-import/ ./
+
+          rm -f MiniProbe-v*-github-ready.zip
+
+      - name: Commit imported source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -A
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Import MiniProbe source package"
+          git push
