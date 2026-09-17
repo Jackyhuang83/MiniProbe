@@ -1,0 +1,92 @@
+name: Release MiniProbe Current Version
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION="$(awk '/^VERSION \?=/{print $3}' Makefile)"
+
+          if [ -z "$VERSION" ]; then
+            echo "Unable to read VERSION from Makefile."
+            exit 1
+          fi
+
+          TAG="v$VERSION"
+          CHANGELOG="CHANGELOG-$TAG.md"
+
+          if [ ! -f "$CHANGELOG" ]; then
+            echo "Missing changelog: $CHANGELOG"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "changelog=$CHANGELOG" >> "$GITHUB_OUTPUT"
+
+          echo "Version: $VERSION"
+          echo "Tag: $TAG"
+          echo "Changelog: $CHANGELOG"
+
+      - name: Test
+        run: |
+          go test ./...
+          go vet ./...
+
+      - name: Build release binaries
+        run: make release
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+          CHANGELOG: ${{ steps.version.outputs.changelog }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+            exit 1
+          fi
+
+          EXTRA_ARGS=()
+
+          case "$VERSION" in
+            *alpha*|*beta*|*rc*)
+              EXTRA_ARGS+=(--prerelease)
+              ;;
+          esac
+
+          gh release create "$TAG" \
+            dist/miniprobe-server-linux-amd64 \
+            dist/miniprobe-server-linux-arm64 \
+            dist/miniprobe-agent-linux-amd64 \
+            dist/miniprobe-agent-linux-arm64 \
+            dist/miniprobe-agent-linux-armv7 \
+            dist/SHA256SUMS \
+            --target main \
+            --title "MiniProbe $TAG" \
+            --notes-file "$CHANGELOG" \
+            "${EXTRA_ARGS[@]}"
