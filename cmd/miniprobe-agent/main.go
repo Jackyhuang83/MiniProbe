@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -27,7 +28,7 @@ import (
 )
 
 const (
-	agentVersion  = "0.4.1-alpha"
+	agentVersion  = "0.4.2-alpha"
 	probeInterval = 10 * time.Second
 )
 
@@ -40,7 +41,6 @@ type cfg struct {
 	StateFile   string
 	Interval    time.Duration
 	Interface   string
-	Probes      string
 }
 
 type cpuSample struct{ idle, total uint64 }
@@ -50,8 +50,23 @@ type netSample struct {
 }
 
 type probeState struct {
-	mu   sync.Mutex
-	hist []int
+	mu       sync.Mutex
+	hist     []int
+	latHist  []int
+	lossHist []int
+}
+
+type probeTask struct {
+	name   string
+	target string
+}
+
+type probeConfig struct {
+	enabled  bool
+	region   string
+	city     string
+	protocol string
+	tasks    []probeTask
 }
 
 type trafficState struct {
@@ -64,11 +79,13 @@ type trafficState struct {
 }
 
 type agentState struct {
-	Endpoint      string             `json:"endpoint,omitempty"`
-	BootstrapID   string             `json:"bootstrap_id,omitempty"`
-	PolicyVersion int64              `json:"policy_version,omitempty"`
-	Policy        common.AgentPolicy `json:"policy"`
-	Traffic       trafficState       `json:"traffic"`
+	Endpoint           string             `json:"endpoint,omitempty"`
+	BootstrapID        string             `json:"bootstrap_id,omitempty"`
+	PolicyVersion      int64              `json:"policy_version,omitempty"`
+	Policy             common.AgentPolicy `json:"policy"`
+	ProbePolicyVersion int64              `json:"probe_policy_version,omitempty"`
+	ProbePolicy        common.ProbePolicy `json:"probe_policy"`
+	Traffic            trafficState       `json:"traffic"`
 }
 
 var probeStates sync.Map
@@ -83,7 +100,6 @@ func main() {
 	flag.StringVar(&c.StateFile, "state-file", getenv("MINIPROBE_STATE_FILE", "/var/lib/miniprobe-agent/state.json"), "persistent agent state")
 	flag.DurationVar(&c.Interval, "interval", 2*time.Second, "report interval")
 	flag.StringVar(&c.Interface, "interface", getenv("MINIPROBE_INTERFACE", "auto"), "network interface or auto")
-	flag.StringVar(&c.Probes, "probes", getenv("MINIPROBE_PROBES", "电信=202.96.128.86:53,联通=210.22.70.3:53,移动=211.136.192.6:53"), "comma separated name=host:port TCP probes")
 	flag.Parse()
 	if c.Endpoint == "" || c.Token == "" {
 		fmt.Fprintln(os.Stderr, "endpoint and token are required")
@@ -107,6 +123,8 @@ func main() {
 		state.BootstrapID = c.BootstrapID
 		state.PolicyVersion = 0
 		state.Policy = common.AgentPolicy{}
+		state.ProbePolicyVersion = 0
+		state.ProbePolicy = common.ProbePolicy{}
 	}
 	if state.Endpoint == "" {
 		state.Endpoint = c.Endpoint
@@ -125,6 +143,7 @@ func main() {
 	lastErrLog := time.Time{}
 	reportingFailed := false
 	lastProbeAt := time.Time{}
+	lastProbeKey := ""
 	var lastProbes []common.ProbeResult
 
 	// Establish the traffic baseline without counting traffic that happened
@@ -143,13 +162,25 @@ func main() {
 		prevCPU, prevNet = curCPU, curNet
 
 		traffic, shouldShutdown := updateTraffic(&state, curNet, time.Now())
-		if lastProbeAt.IsZero() || time.Since(lastProbeAt) >= probeInterval {
-			lastProbes = runProbes(c.Probes)
+		probeCfg := probeConfigFromPolicy(state.ProbePolicy)
+		probeKey := probeConfigKey(probeCfg)
+		if probeKey != lastProbeKey || lastProbeAt.IsZero() || time.Since(lastProbeAt) >= probeInterval {
+			if probeCfg.enabled {
+				lastProbes = runProbes(probeCfg)
+			} else {
+				lastProbes = nil
+			}
 			lastProbeAt = time.Now()
+			lastProbeKey = probeKey
 		}
 		endpoint := strings.TrimRight(state.Endpoint, "/")
+		probeProtocol := probeCfg.protocol
+		if !probeCfg.enabled {
+			probeProtocol = "off"
+		}
 		rep := common.Report{
 			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: endpoint, PolicyVersion: state.PolicyVersion,
+			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol,
 			Info: info, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
 		}
 		response, sendErr := send(client, endpoint, c.Token, rep)
@@ -164,13 +195,29 @@ func main() {
 				fmt.Fprintf(os.Stderr, "%s MiniProbe connection recovered\n", time.Now().Format(time.RFC3339))
 			}
 			reportingFailed = false
-			if response != nil && response.Policy != nil && len(pubKey) == ed25519.PublicKeySize {
-				if changed, err := applySignedPolicy(client, c.NodeID, pubKey, response.Policy, &state); err != nil {
-					if time.Since(lastErrLog) >= time.Minute {
-						fmt.Fprintf(os.Stderr, "%s MiniProbe policy ignored: %v\n", time.Now().Format(time.RFC3339), err)
-						lastErrLog = time.Now()
+			if response != nil && len(pubKey) == ed25519.PublicKeySize {
+				stateChanged := false
+				if response.Policy != nil {
+					if changed, err := applySignedPolicy(client, c.NodeID, pubKey, response.Policy, &state); err != nil {
+						if time.Since(lastErrLog) >= time.Minute {
+							fmt.Fprintf(os.Stderr, "%s MiniProbe policy ignored: %v\n", time.Now().Format(time.RFC3339), err)
+							lastErrLog = time.Now()
+						}
+					} else if changed {
+						stateChanged = true
 					}
-				} else if changed {
+				}
+				if response.ProbePolicy != nil {
+					if changed, err := applySignedProbePolicy(c.NodeID, pubKey, response.ProbePolicy, &state); err != nil {
+						if time.Since(lastErrLog) >= time.Minute {
+							fmt.Fprintf(os.Stderr, "%s MiniProbe probe policy ignored: %v\n", time.Now().Format(time.RFC3339), err)
+							lastErrLog = time.Now()
+						}
+					} else if changed {
+						stateChanged = true
+					}
+				}
+				if stateChanged {
 					_ = saveAgentState(c.StateFile, state)
 					lastSave = time.Now()
 				}
@@ -267,6 +314,40 @@ func applySignedPolicy(client *http.Client, nodeID string, key ed25519.PublicKey
 	st.Endpoint = nextEndpoint
 	st.PolicyVersion = p.Version
 	st.Policy = p
+	return changed, nil
+}
+
+func applySignedProbePolicy(nodeID string, key ed25519.PublicKey, signed *common.SignedProbePolicy, st *agentState) (bool, error) {
+	if signed == nil {
+		return false, nil
+	}
+	p := signed.Policy
+	if p.NodeID != nodeID {
+		return false, errors.New("probe policy node mismatch")
+	}
+	if p.Version < st.ProbePolicyVersion {
+		return false, errors.New("replayed probe policy version")
+	}
+	if p.Region != "beijing" && p.Region != "shanghai" && p.Region != "guangzhou" {
+		return false, errors.New("invalid probe region")
+	}
+	if p.Protocol != "icmp" && p.Protocol != "tcp" && p.Protocol != "udp" {
+		return false, errors.New("invalid probe protocol")
+	}
+	if net.ParseIP(p.Telecom) == nil || net.ParseIP(p.Unicom) == nil || net.ParseIP(p.Mobile) == nil {
+		return false, errors.New("invalid probe target")
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(signed.Signature)
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return false, errors.New("invalid probe policy signature encoding")
+	}
+	payload, _ := json.Marshal(p)
+	if !ed25519.Verify(key, payload, sig) {
+		return false, errors.New("invalid probe policy signature")
+	}
+	changed := p.Version != st.ProbePolicyVersion || st.ProbePolicy != p
+	st.ProbePolicyVersion = p.Version
+	st.ProbePolicy = p
 	return changed, nil
 }
 
@@ -594,91 +675,250 @@ func readNet(iface string) netSample {
 	return netSample{rx, tx, time.Now()}
 }
 
-func runProbes(spec string) []common.ProbeResult {
-	type task struct{ name, target string }
-	var tasks []task
-	for _, item := range strings.Split(spec, ",") {
-		item = strings.TrimSpace(item)
-		if item == "" {
-			continue
-		}
-		p := strings.SplitN(item, "=", 2)
-		if len(p) != 2 {
-			continue
-		}
-		tasks = append(tasks, task{name: strings.TrimSpace(p[0]), target: strings.TrimSpace(p[1])})
+func probeConfigFromPolicy(p common.ProbePolicy) probeConfig {
+	region := strings.ToLower(strings.TrimSpace(p.Region))
+	protocol := strings.ToLower(strings.TrimSpace(p.Protocol))
+	enabled := p.Enabled
+
+	// Empty probe fields mean the Agent has not received the v0.4.2 policy yet
+	// (or is temporarily talking to an older Server). Use the new defaults until
+	// the signed Server policy arrives.
+	if region == "" && protocol == "" && p.Telecom == "" && p.Unicom == "" && p.Mobile == "" {
+		region = "guangzhou"
+		protocol = "icmp"
+		enabled = true
 	}
-	out := make([]common.ProbeResult, len(tasks))
+	if region != "beijing" && region != "shanghai" && region != "guangzhou" {
+		region = "guangzhou"
+	}
+	if protocol != "icmp" && protocol != "tcp" && protocol != "udp" {
+		protocol = "icmp"
+	}
+
+	city, telecom, unicom, mobile := builtInProbeTargets(region)
+	if strings.TrimSpace(p.Telecom) != "" {
+		telecom = strings.TrimSpace(p.Telecom)
+	}
+	if strings.TrimSpace(p.Unicom) != "" {
+		unicom = strings.TrimSpace(p.Unicom)
+	}
+	if strings.TrimSpace(p.Mobile) != "" {
+		mobile = strings.TrimSpace(p.Mobile)
+	}
+	return probeConfig{
+		enabled: enabled, region: region, city: city, protocol: protocol,
+		tasks: []probeTask{{name: city + "电信", target: telecom}, {name: city + "联通", target: unicom}, {name: city + "移动", target: mobile}},
+	}
+}
+
+func probeConfigKey(cfg probeConfig) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%t|%s|%s", cfg.enabled, cfg.region, cfg.protocol)
+	for _, t := range cfg.tasks {
+		b.WriteByte('|')
+		b.WriteString(t.target)
+	}
+	return b.String()
+}
+
+func builtInProbeTargets(region string) (city, telecom, unicom, mobile string) {
+	switch region {
+	case "beijing":
+		return "北京", "219.141.136.10", "202.106.0.20", "221.130.33.60"
+	case "shanghai":
+		return "上海", "202.96.209.133", "210.22.70.3", "211.136.112.50"
+	default:
+		return "广州", "202.96.128.86", "210.21.4.130", "211.136.192.6"
+	}
+}
+
+func runProbes(cfg probeConfig) []common.ProbeResult {
+	out := make([]common.ProbeResult, len(cfg.tasks))
 	var wg sync.WaitGroup
-	for i, t := range tasks {
+	for i, t := range cfg.tasks {
 		wg.Add(1)
-		go func(i int, t task) {
+		go func(i int, t probeTask) {
 			defer wg.Done()
-			out[i] = probeTCP(t.name, t.target)
+			out[i] = probeTarget(cfg.protocol, t.name, t.target)
 		}(i, t)
 	}
 	wg.Wait()
 	return out
 }
 
-func probeTCP(name, target string) common.ProbeResult {
-	if !targetUsableOnHost(target) {
+func probeTarget(protocol, name, target string) common.ProbeResult {
+	if !targetUsableOnHost(net.JoinHostPort(target, "53")) {
 		return common.ProbeResult{Name: name, Target: target, Available: false, LatencyMS: -1, LossPct: 0}
 	}
 	const attempts = 4
-	type attemptResult struct {
-		ok bool
-		ms float64
-	}
-	ch := make(chan attemptResult, attempts)
-	for i := 0; i < attempts; i++ {
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
-			defer cancel()
-			d := net.Dialer{Timeout: 900 * time.Millisecond}
-			st := time.Now()
-			conn, err := d.DialContext(ctx, "tcp", target)
-			if err != nil {
-				ch <- attemptResult{}
-				return
-			}
-			_ = conn.Close()
-			ch <- attemptResult{ok: true, ms: float64(time.Since(st).Microseconds()) / 1000}
-		}()
-	}
 	var ok int
 	var sum float64
-	state := 3
 	for i := 0; i < attempts; i++ {
-		r := <-ch
-		if !r.ok {
-			continue
+		var ms float64
+		var success bool
+		switch protocol {
+		case "tcp":
+			ms, success = probeTCPOnce(target)
+		case "udp":
+			ms, success = probeUDPOnce(target, uint16((time.Now().UnixNano()+int64(i))&0xffff))
+		default:
+			ms, success = probeICMPOnce(target, uint16(os.Getpid()&0xffff), uint16(i+1))
 		}
-		ok++
-		sum += r.ms
-		cur := 0
-		if r.ms > 200 {
-			cur = 2
-		} else if r.ms > 100 {
-			cur = 1
-		}
-		if state == 3 || cur > state {
-			state = cur
+		if success {
+			ok++
+			sum += ms
 		}
 	}
+
 	loss := float64(attempts-ok) * 100 / attempts
 	lat := -1.0
 	if ok > 0 {
 		lat = sum / float64(ok)
 	}
-	if loss > 0 && loss < 100 && state < 2 {
-		state = 2
+	latState := latencyQuality(lat)
+	lossState := lossQuality(loss)
+	quality := latState
+	if lossState > quality {
+		quality = lossState
 	}
-	if ok == 0 {
-		state = 3
+	key := protocol + "|" + name
+	hist, latHist, lossHist := appendHistories(key, quality, latState, lossState)
+	return common.ProbeResult{Name: name, Target: target, Available: true, LatencyMS: lat, LossPct: loss, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
+}
+
+func latencyQuality(lat float64) int {
+	if lat < 0 {
+		return 3
 	}
-	hist := appendHistory(name, state)
-	return common.ProbeResult{Name: name, Target: target, Available: true, LatencyMS: lat, LossPct: loss, History: hist}
+	if lat > 200 {
+		return 2
+	}
+	if lat > 100 {
+		return 1
+	}
+	return 0
+}
+
+func lossQuality(loss float64) int {
+	switch {
+	case loss >= 100:
+		return 3
+	case loss >= 50:
+		return 2
+	case loss > 0:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func probeTCPOnce(target string) (float64, bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
+	defer cancel()
+	d := net.Dialer{Timeout: 900 * time.Millisecond}
+	start := time.Now()
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(target, "53"))
+	if err != nil {
+		return 0, false
+	}
+	_ = conn.Close()
+	return float64(time.Since(start).Microseconds()) / 1000, true
+}
+
+func probeUDPOnce(target string, id uint16) (float64, bool) {
+	conn, err := net.DialTimeout("udp", net.JoinHostPort(target, "53"), 900*time.Millisecond)
+	if err != nil {
+		return 0, false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(900 * time.Millisecond))
+	query := dnsQuery(id)
+	start := time.Now()
+	if _, err := conn.Write(query); err != nil {
+		return 0, false
+	}
+	buf := make([]byte, 1500)
+	n, err := conn.Read(buf)
+	if err != nil || n < 12 || binary.BigEndian.Uint16(buf[:2]) != id {
+		return 0, false
+	}
+	return float64(time.Since(start).Microseconds()) / 1000, true
+}
+
+func dnsQuery(id uint16) []byte {
+	q := make([]byte, 12, 64)
+	binary.BigEndian.PutUint16(q[0:2], id)
+	binary.BigEndian.PutUint16(q[2:4], 0x0100) // recursion desired
+	binary.BigEndian.PutUint16(q[4:6], 1)      // one question
+	for _, label := range strings.Split("www.baidu.com", ".") {
+		q = append(q, byte(len(label)))
+		q = append(q, label...)
+	}
+	q = append(q, 0)
+	q = append(q, 0, 1) // A
+	q = append(q, 0, 1) // IN
+	return q
+}
+
+func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
+	ip := net.ParseIP(target)
+	if ip == nil || ip.To4() == nil {
+		return 0, false
+	}
+	conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return 0, false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(900 * time.Millisecond))
+	packet := make([]byte, 8+16)
+	packet[0] = 8 // echo request
+	binary.BigEndian.PutUint16(packet[4:6], id)
+	binary.BigEndian.PutUint16(packet[6:8], seq)
+	binary.BigEndian.PutUint64(packet[8:16], uint64(time.Now().UnixNano()))
+	binary.BigEndian.PutUint64(packet[16:24], uint64(seq))
+	binary.BigEndian.PutUint16(packet[2:4], icmpChecksum(packet))
+	start := time.Now()
+	if _, err := conn.WriteTo(packet, &net.IPAddr{IP: ip}); err != nil {
+		return 0, false
+	}
+	buf := make([]byte, 1500)
+	for {
+		n, _, err := conn.ReadFrom(buf)
+		if err != nil {
+			return 0, false
+		}
+		msg := buf[:n]
+		if len(msg) >= 20 && msg[0]>>4 == 4 {
+			hl := int(msg[0]&0x0f) * 4
+			if hl >= len(msg) {
+				continue
+			}
+			msg = msg[hl:]
+		}
+		if len(msg) < 8 || msg[0] != 0 {
+			continue
+		}
+		if binary.BigEndian.Uint16(msg[4:6]) != id || binary.BigEndian.Uint16(msg[6:8]) != seq {
+			continue
+		}
+		return float64(time.Since(start).Microseconds()) / 1000, true
+	}
+}
+
+func icmpChecksum(b []byte) uint16 {
+	var sum uint32
+	for len(b) >= 2 {
+		sum += uint32(binary.BigEndian.Uint16(b[:2]))
+		b = b[2:]
+	}
+	if len(b) == 1 {
+		sum += uint32(b[0]) << 8
+	}
+	for sum>>16 != 0 {
+		sum = (sum & 0xffff) + (sum >> 16)
+	}
+	return ^uint16(sum)
 }
 
 func targetUsableOnHost(target string) bool {
@@ -728,17 +968,24 @@ func localFamilies() (bool, bool) {
 	return has4, has6
 }
 
-func appendHistory(name string, v int) []int {
+func appendHistories(name string, quality, latency, loss int) ([]int, []int, []int) {
 	x, _ := probeStates.LoadOrStore(name, &probeState{})
 	ps := x.(*probeState)
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	ps.hist = append(ps.hist, v)
+	ps.hist = append(ps.hist, quality)
+	ps.latHist = append(ps.latHist, latency)
+	ps.lossHist = append(ps.lossHist, loss)
 	if len(ps.hist) > 30 {
 		ps.hist = ps.hist[len(ps.hist)-30:]
 	}
-	cp := append([]int(nil), ps.hist...)
-	return cp
+	if len(ps.latHist) > 30 {
+		ps.latHist = ps.latHist[len(ps.latHist)-30:]
+	}
+	if len(ps.lossHist) > 30 {
+		ps.lossHist = ps.lossHist[len(ps.lossHist)-30:]
+	}
+	return append([]int(nil), ps.hist...), append([]int(nil), ps.latHist...), append([]int(nil), ps.lossHist...)
 }
 
 func readOS() string {

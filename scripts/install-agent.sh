@@ -117,7 +117,10 @@ LogRateLimitBurst=10
 WantedBy=multi-user.target
 UNIT
   systemctl daemon-reload
-  systemctl enable --now miniprobe-agent >/dev/null
+  systemctl enable miniprobe-agent >/dev/null
+  # `enable --now` does not restart an already-running service. Explicit restart
+  # ensures an in-place Agent upgrade begins executing the new binary now.
+  systemctl restart miniprobe-agent
 elif command -v rc-service >/dev/null 2>&1; then
   cat > /etc/init.d/miniprobe-agent <<'RC'
 #!/sbin/openrc-run

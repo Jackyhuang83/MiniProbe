@@ -22,7 +22,7 @@ DATA_DIR=${MINIPROBE_DATA_DIR:-/var/lib/miniprobe}
 DOWNLOADS_DIR="$INSTALL_DIR/downloads"
 ADMIN_SOCKET=${MINIPROBE_ADMIN_SOCKET:-/run/miniprobe/admin.sock}
 BUNDLE_DIR=${MINIPROBE_BUNDLE_DIR:-}
-VERSION=${MINIPROBE_VERSION:-v0.4.1-alpha}
+VERSION=${MINIPROBE_VERSION:-v0.4.2-alpha}
 RELEASE_BASE=${MINIPROBE_RELEASE_BASE:-https://github.com/Jackyhuang83/MiniProbe/releases/download/$VERSION}
 PUBLIC_URL=${MINIPROBE_PUBLIC_URL:-}
 DASHBOARD_MODE=${MINIPROBE_DASHBOARD_MODE:-protected}
@@ -60,8 +60,15 @@ random_password() {
 }
 
 echo "[1/4] 安装 MiniProbe Server..."
-fetch "miniprobe-server-linux-$ARCH" "$INSTALL_DIR/miniprobe-server"
-chmod 0755 "$INSTALL_DIR/miniprobe-server"
+SERVER_NEW="$INSTALL_DIR/.miniprobe-server.new.$$"
+trap 'rm -f "$SERVER_NEW"' 0 1 15
+fetch "miniprobe-server-linux-$ARCH" "$SERVER_NEW"
+chmod 0755 "$SERVER_NEW"
+# Never truncate a running executable in place. Download to a temporary file
+# and atomically rename it over the old inode; the running process keeps the
+# old inode until the service is restarted below.
+mv -f "$SERVER_NEW" "$INSTALL_DIR/miniprobe-server"
+trap - 0 1 15
 for a in amd64 arm64 armv7; do
   echo "      准备 Agent linux/$a"
   fetch "miniprobe-agent-linux-$a" "$DOWNLOADS_DIR/miniprobe-agent-linux-$a"

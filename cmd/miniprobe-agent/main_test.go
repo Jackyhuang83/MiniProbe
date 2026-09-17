@@ -73,3 +73,44 @@ func TestSignedPolicyAndEndpointMigration(t *testing.T) {
 		t.Fatal("expected replay rejection")
 	}
 }
+
+func TestSignedProbePolicy(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := common.ProbePolicy{
+		Version: 3, NodeID: "node-1", Enabled: true, Region: "guangzhou", Protocol: "udp",
+		Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6",
+	}
+	payload, _ := json.Marshal(p)
+	signed := &common.SignedProbePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, payload))}
+	st := agentState{}
+	changed, err := applySignedProbePolicy("node-1", pub, signed, &st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || st.ProbePolicy.Protocol != "udp" || st.ProbePolicy.Region != "guangzhou" {
+		t.Fatalf("probe policy not applied: %+v", st.ProbePolicy)
+	}
+}
+
+func TestProbeConfigLabelsCityAndProtocol(t *testing.T) {
+	cfg := probeConfigFromPolicy(common.ProbePolicy{
+		Enabled: true, Region: "shanghai", Protocol: "tcp",
+		Telecom: "202.96.209.133", Unicom: "210.22.70.3", Mobile: "211.136.112.50",
+	})
+	if !cfg.enabled || cfg.protocol != "tcp" || cfg.city != "上海" {
+		t.Fatalf("unexpected cfg: %+v", cfg)
+	}
+	if len(cfg.tasks) != 3 || cfg.tasks[1].name != "上海联通" {
+		t.Fatalf("unexpected tasks: %+v", cfg.tasks)
+	}
+}
+
+func TestDNSQuery(t *testing.T) {
+	q := dnsQuery(0x1234)
+	if len(q) < 20 || q[0] != 0x12 || q[1] != 0x34 {
+		t.Fatalf("invalid DNS query: %x", q)
+	}
+}

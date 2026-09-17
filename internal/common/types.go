@@ -3,12 +3,14 @@ package common
 import "time"
 
 type ProbeResult struct {
-	Name      string  `json:"name"`
-	Available bool    `json:"available"`
-	Target    string  `json:"target"`
-	LatencyMS float64 `json:"latency_ms"`
-	LossPct   float64 `json:"loss_pct"`
-	History   []int   `json:"history"` // 0=good 1=warn 2=bad 3=loss
+	Name           string  `json:"name"`
+	Available      bool    `json:"available"`
+	Target         string  `json:"target"`
+	LatencyMS      float64 `json:"latency_ms"`
+	LossPct        float64 `json:"loss_pct"`
+	History        []int   `json:"history"`                   // backward-compatible combined quality history
+	LatencyHistory []int   `json:"latency_history,omitempty"` // 0=good 1=warn 2=bad 3=timeout
+	LossHistory    []int   `json:"loss_history,omitempty"`    // 0=0% 1=minor 2=major 3=100%
 }
 
 type StaticInfo struct {
@@ -64,6 +66,8 @@ type Report struct {
 	AgentVersion  string          `json:"agent_version,omitempty"`
 	AgentEndpoint string          `json:"agent_endpoint,omitempty"`
 	PolicyVersion int64           `json:"policy_version,omitempty"`
+	ProbeRegion   string          `json:"probe_region,omitempty"`
+	ProbeProtocol string          `json:"probe_protocol,omitempty"`
 	Info          StaticInfo      `json:"info"`
 	Metrics       Metrics         `json:"metrics"`
 	Traffic       TrafficSnapshot `json:"traffic"`
@@ -71,9 +75,10 @@ type Report struct {
 	At            time.Time       `json:"at"`
 }
 
-// AgentPolicy is the only remotely delivered Agent configuration. It contains
-// no command execution primitive. The server signs it with Ed25519 and the
-// Agent rejects unsigned, invalid, or replayed policies.
+// AgentPolicy carries endpoint and traffic-safety configuration. ProbePolicy
+// is signed separately so older Agents can ignore the new probe field without
+// breaking verification of the existing policy. Neither policy contains a
+// generic command-execution primitive.
 type AgentPolicy struct {
 	Version               int64  `json:"version"`
 	NodeID                string `json:"node_id"`
@@ -86,14 +91,31 @@ type AgentPolicy struct {
 	ShutdownPercent       int    `json:"shutdown_percent"`
 }
 
+type ProbePolicy struct {
+	Version  int64  `json:"version"`
+	NodeID   string `json:"node_id"`
+	Enabled  bool   `json:"enabled"`
+	Region   string `json:"region"`
+	Protocol string `json:"protocol"`
+	Telecom  string `json:"telecom"`
+	Unicom   string `json:"unicom"`
+	Mobile   string `json:"mobile"`
+}
+
+type SignedProbePolicy struct {
+	Policy    ProbePolicy `json:"policy"`
+	Signature string      `json:"signature"`
+}
+
 type SignedPolicy struct {
 	Policy    AgentPolicy `json:"policy"`
 	Signature string      `json:"signature"`
 }
 
 type ReportResponse struct {
-	OK     bool          `json:"ok"`
-	Policy *SignedPolicy `json:"policy,omitempty"`
+	OK          bool               `json:"ok"`
+	Policy      *SignedPolicy      `json:"policy,omitempty"`
+	ProbePolicy *SignedProbePolicy `json:"probe_policy,omitempty"`
 }
 
 type NodeView struct {

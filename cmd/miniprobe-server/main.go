@@ -41,7 +41,7 @@ var assets embed.FS
 const (
 	cookieName       = "miniprobe_dashboard"
 	pbkdf2Iters      = 210000
-	databaseVer      = 4
+	databaseVer      = 5
 	defaultListen    = ":28888"
 	defaultAdminSock = "/run/miniprobe/admin.sock"
 	maxRequestBody   = 1 << 20
@@ -51,14 +51,71 @@ const (
 )
 
 const (
-	dashboardPublic    = "public"
-	dashboardProtected = "protected"
-	dashboardDisabled  = "disabled"
-	accessDirect       = "direct"
-	accessTunnel       = "tunnel"
+	dashboardPublic      = "public"
+	dashboardProtected   = "protected"
+	dashboardDisabled    = "disabled"
+	accessDirect         = "direct"
+	accessTunnel         = "tunnel"
+	probeModeOn          = "on"
+	probeModeOff         = "off"
+	probeRegionBeijing   = "beijing"
+	probeRegionShanghai  = "shanghai"
+	probeRegionGuangzhou = "guangzhou"
+	probeProtocolICMP    = "icmp"
+	probeProtocolTCP     = "tcp"
+	probeProtocolUDP     = "udp"
 )
 
 var trafficWarnLevels = []int{70, 85, 90}
+
+type probeTargetSet struct {
+	City    string
+	Telecom string
+	Unicom  string
+	Mobile  string
+}
+
+func probeTargetsFor(region string) (probeTargetSet, bool) {
+	switch region {
+	case probeRegionBeijing:
+		return probeTargetSet{City: "北京", Telecom: "219.141.136.10", Unicom: "202.106.0.20", Mobile: "221.130.33.60"}, true
+	case probeRegionShanghai:
+		return probeTargetSet{City: "上海", Telecom: "202.96.209.133", Unicom: "210.22.70.3", Mobile: "211.136.112.50"}, true
+	case probeRegionGuangzhou:
+		return probeTargetSet{City: "广州", Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6"}, true
+	default:
+		return probeTargetSet{}, false
+	}
+}
+
+func validProbeRegion(v string) bool {
+	_, ok := probeTargetsFor(v)
+	return ok
+}
+
+func validProbeProtocol(v string) bool {
+	return v == probeProtocolICMP || v == probeProtocolTCP || v == probeProtocolUDP
+}
+
+func probeRegionLabel(v string) string {
+	if t, ok := probeTargetsFor(v); ok {
+		return t.City
+	}
+	return "未知"
+}
+
+func probeProtocolLabel(v string) string {
+	switch v {
+	case probeProtocolICMP:
+		return "ICMP"
+	case probeProtocolTCP:
+		return "TCP"
+	case probeProtocolUDP:
+		return "UDP"
+	default:
+		return "未知"
+	}
+}
 
 type passwordConfig struct {
 	Salt string `json:"salt,omitempty"`
@@ -80,6 +137,9 @@ type settings struct {
 	PolicyVersion     int64          `json:"policy_version"`
 	DashboardMode     string         `json:"dashboard_mode"`
 	DashboardPassword passwordConfig `json:"dashboard_password,omitempty"`
+	ProbeMode         string         `json:"probe_mode"`
+	ProbeRegion       string         `json:"probe_region"`
+	ProbeProtocol     string         `json:"probe_protocol"`
 	Telegram          telegramConfig `json:"telegram"`
 }
 
@@ -278,6 +338,18 @@ func (s *server) loadOrInit(publicURL, dashboardMode, dashboardPassword string) 
 			s.db.Settings.PolicyVersion = 1
 			changed = true
 		}
+		if s.db.Settings.ProbeMode != probeModeOn && s.db.Settings.ProbeMode != probeModeOff {
+			s.db.Settings.ProbeMode = probeModeOn
+			changed = true
+		}
+		if !validProbeRegion(s.db.Settings.ProbeRegion) {
+			s.db.Settings.ProbeRegion = probeRegionGuangzhou
+			changed = true
+		}
+		if !validProbeProtocol(s.db.Settings.ProbeProtocol) {
+			s.db.Settings.ProbeProtocol = probeProtocolICMP
+			changed = true
+		}
 		if s.db.Settings.Telegram.SummaryHours == 0 {
 			s.db.Settings.Telegram.SummaryHours = 4
 			changed = true
@@ -303,6 +375,9 @@ func (s *server) loadOrInit(publicURL, dashboardMode, dashboardPassword string) 
 		}
 		if s.db.Version < databaseVer {
 			s.db.Version = databaseVer
+			// v5 adds signed global probe settings; bump policy so existing Agents
+			// receive the new city/protocol selection immediately after upgrade.
+			s.db.Settings.PolicyVersion++
 			changed = true
 		}
 		if changed {
@@ -344,6 +419,7 @@ func (s *server) loadOrInit(publicURL, dashboardMode, dashboardPassword string) 
 	s.db = database{
 		Version: databaseVer, Secret: base64.RawURLEncoding.EncodeToString(sec),
 		Settings: settings{PublicURL: publicURL, AccessMode: accessDirect, PolicyVersion: 1, DashboardMode: dashboardMode, DashboardPassword: dashboardHash,
+			ProbeMode: probeModeOn, ProbeRegion: probeRegionGuangzhou, ProbeProtocol: probeProtocolICMP,
 			Telegram: telegramConfig{SummaryHours: 4, OfflineMinutes: 2}},
 		Nodes: map[string]nodeConfig{}, States: map[string]common.NodeView{}, Notifications: map[string]notificationState{},
 	}
@@ -427,12 +503,13 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	}
 	s.db.Notifications[rep.NodeID] = ns
 	policy := s.signedPolicyLocked(cfg)
+	probePolicy := s.signedProbePolicyLocked(cfg)
 	s.mu.Unlock()
 
 	for _, msg := range messages {
 		s.enqueueNotification(msg)
 	}
-	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy})
+	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy})
 }
 
 func (s *server) signedPolicyLocked(cfg nodeConfig) *common.SignedPolicy {
@@ -446,6 +523,19 @@ func (s *server) signedPolicyLocked(cfg nodeConfig) *common.SignedPolicy {
 	priv := ed25519.NewKeyFromSeed(s.secret[:ed25519.SeedSize])
 	sig := ed25519.Sign(priv, payload)
 	return &common.SignedPolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(sig)}
+}
+
+func (s *server) signedProbePolicyLocked(cfg nodeConfig) *common.SignedProbePolicy {
+	targets, _ := probeTargetsFor(s.db.Settings.ProbeRegion)
+	p := common.ProbePolicy{
+		Version: s.db.Settings.PolicyVersion, NodeID: cfg.ID, Enabled: s.db.Settings.ProbeMode != probeModeOff,
+		Region: s.db.Settings.ProbeRegion, Protocol: s.db.Settings.ProbeProtocol,
+		Telecom: targets.Telecom, Unicom: targets.Unicom, Mobile: targets.Mobile,
+	}
+	payload, _ := json.Marshal(p)
+	priv := ed25519.NewKeyFromSeed(s.secret[:ed25519.SeedSize])
+	sig := ed25519.Sign(priv, payload)
+	return &common.SignedProbePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(sig)}
 }
 
 func (s *server) serverPublicKey() string {
@@ -731,6 +821,11 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 			"policy_version":           s.db.Settings.PolicyVersion,
 			"dashboard_mode":           s.db.Settings.DashboardMode,
 			"has_dashboard_password":   s.db.Settings.DashboardPassword.Hash != "",
+			"probe_mode":               s.db.Settings.ProbeMode,
+			"probe_region":             s.db.Settings.ProbeRegion,
+			"probe_region_label":       probeRegionLabel(s.db.Settings.ProbeRegion),
+			"probe_protocol":           s.db.Settings.ProbeProtocol,
+			"probe_protocol_label":     probeProtocolLabel(s.db.Settings.ProbeProtocol),
 			"telegram_enabled":         tg.Enabled,
 			"telegram_has_token":       tg.BotToken != "",
 			"telegram_chat_id":         tg.ChatID,
@@ -748,6 +843,9 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 			AccessMode             *string `json:"access_mode"`
 			DashboardMode          *string `json:"dashboard_mode"`
 			DashboardPassword      *string `json:"dashboard_password"`
+			ProbeMode              *string `json:"probe_mode"`
+			ProbeRegion            *string `json:"probe_region"`
+			ProbeProtocol          *string `json:"probe_protocol"`
 			TelegramEnabled        *bool   `json:"telegram_enabled"`
 			TelegramBotToken       *string `json:"telegram_bot_token"`
 			TelegramChatID         *string `json:"telegram_chat_id"`
@@ -813,6 +911,43 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			s.db.Settings.DashboardPassword = hashPassword(*in.DashboardPassword)
 		}
+		if in.ProbeMode != nil {
+			mode := strings.TrimSpace(strings.ToLower(*in.ProbeMode))
+			if mode != probeModeOn && mode != probeModeOff {
+				s.mu.Unlock()
+				http.Error(w, "probe mode must be on or off", http.StatusBadRequest)
+				return
+			}
+			if mode != s.db.Settings.ProbeMode {
+				s.db.Settings.ProbeMode = mode
+				policyChanged = true
+			}
+		}
+		if in.ProbeRegion != nil {
+			region := strings.TrimSpace(strings.ToLower(*in.ProbeRegion))
+			if !validProbeRegion(region) {
+				s.mu.Unlock()
+				http.Error(w, "probe region must be beijing, shanghai, or guangzhou", http.StatusBadRequest)
+				return
+			}
+			if region != s.db.Settings.ProbeRegion {
+				s.db.Settings.ProbeRegion = region
+				policyChanged = true
+			}
+		}
+		if in.ProbeProtocol != nil {
+			protocol := strings.TrimSpace(strings.ToLower(*in.ProbeProtocol))
+			if !validProbeProtocol(protocol) {
+				s.mu.Unlock()
+				http.Error(w, "probe protocol must be icmp, tcp, or udp", http.StatusBadRequest)
+				return
+			}
+			if protocol != s.db.Settings.ProbeProtocol {
+				s.db.Settings.ProbeProtocol = protocol
+				policyChanged = true
+			}
+		}
+
 		if in.TelegramBotToken != nil {
 			s.db.Settings.Telegram.BotToken = strings.TrimSpace(*in.TelegramBotToken)
 		}
@@ -1694,6 +1829,11 @@ func runManager(socketPath string) error {
 		fmt.Printf(" Agent 接入地址 : %s\n", dash(cfg.PublicURL))
 		fmt.Printf(" 网络模式        : %s\n", accessModeLabel(cfg.AccessMode))
 		fmt.Printf(" Dashboard       : %s\n", dashboardModeLabel(cfg.DashboardMode))
+		probeState := "关闭"
+		if cfg.ProbeMode != probeModeOff {
+			probeState = cfg.ProbeRegionLabel + " · " + cfg.ProbeProtocolLabel
+		}
+		fmt.Printf(" 国内线路测试    : %s\n", probeState)
 		fmt.Printf(" 节点            : %d / %d（建议上限）\n", len(nodes), cfg.NodeSoftLimit)
 		if len(nodes) > cfg.NodeSoftLimit {
 			fmt.Printf(" ⚠ 节点数量已超过 MiniProbe 建议规模 %d。\n", cfg.NodeSoftLimit)
@@ -1709,6 +1849,7 @@ func runManager(socketPath string) error {
 		fmt.Println(" 8. 网络接入方式（Direct / Cloudflare Tunnel）")
 		fmt.Println(" 9. Telegram 通知")
 		fmt.Println("10. 存储 / 当前设置")
+		fmt.Println("11. 国内线路测试（北京 / 上海 / 广州）")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")
@@ -1733,6 +1874,8 @@ func runManager(socketPath string) error {
 			manageTelegram(reader, client)
 		case "10":
 			manageShowConfig(client)
+		case "11":
+			manageProbeSettings(reader, client)
 		case "0", "q", "Q":
 			return nil
 		default:
@@ -1747,6 +1890,11 @@ type localConfigView struct {
 	PolicyVersion          int64  `json:"policy_version"`
 	DashboardMode          string `json:"dashboard_mode"`
 	HasDashboardPassword   bool   `json:"has_dashboard_password"`
+	ProbeMode              string `json:"probe_mode"`
+	ProbeRegion            string `json:"probe_region"`
+	ProbeRegionLabel       string `json:"probe_region_label"`
+	ProbeProtocol          string `json:"probe_protocol"`
+	ProbeProtocolLabel     string `json:"probe_protocol_label"`
 	TelegramEnabled        bool   `json:"telegram_enabled"`
 	TelegramHasToken       bool   `json:"telegram_has_token"`
 	TelegramChatID         string `json:"telegram_chat_id"`
@@ -2303,6 +2451,75 @@ func manageTelegram(r *bufio.Reader, c *localClient) {
 	}
 }
 
+func manageProbeSettings(r *bufio.Reader, c *localClient) {
+	for {
+		cfg, err := getLocalConfig(c)
+		if err != nil {
+			fmt.Println("读取线路测试设置失败:", err)
+			return
+		}
+		state := "关闭"
+		if cfg.ProbeMode != probeModeOff {
+			state = cfg.ProbeRegionLabel + " · " + cfg.ProbeProtocolLabel
+		}
+		fmt.Println("\n国内线路测试")
+		fmt.Println("------------------------------------------------------------")
+		fmt.Printf("当前：%s\n", state)
+		fmt.Println("1. 选择测试城市")
+		fmt.Println("2. 选择测试协议")
+		if cfg.ProbeMode == probeModeOff {
+			fmt.Println("3. 开启线路测试")
+		} else {
+			fmt.Println("3. 关闭线路测试")
+		}
+		fmt.Println("0. 返回")
+		switch prompt(r, "请选择: ") {
+		case "1":
+			fmt.Println(" 1. 北京\n 2. 上海\n 3. 广州")
+			regions := map[string]string{"1": probeRegionBeijing, "2": probeRegionShanghai, "3": probeRegionGuangzhou}
+			v, ok := regions[prompt(r, "请选择城市: ")]
+			if !ok {
+				fmt.Println("无效选项。")
+				continue
+			}
+			if err := c.request(http.MethodPut, "/v1/config", map[string]any{"probe_region": v, "probe_mode": probeModeOn}, nil); err != nil {
+				fmt.Println("修改失败:", err)
+			} else {
+				fmt.Printf("已切换到%s三网测试。\n", probeRegionLabel(v))
+			}
+		case "2":
+			fmt.Println(" 1. ICMP（Ping 延迟 / 丢包）\n 2. TCP（53 端口连接延迟 / 失败率）\n 3. UDP（DNS 查询延迟 / 失败率）")
+			protocols := map[string]string{"1": probeProtocolICMP, "2": probeProtocolTCP, "3": probeProtocolUDP}
+			v, ok := protocols[prompt(r, "请选择协议: ")]
+			if !ok {
+				fmt.Println("无效选项。")
+				continue
+			}
+			if err := c.request(http.MethodPut, "/v1/config", map[string]any{"probe_protocol": v, "probe_mode": probeModeOn}, nil); err != nil {
+				fmt.Println("修改失败:", err)
+			} else {
+				fmt.Printf("已切换到 %s 测试。\n", probeProtocolLabel(v))
+			}
+		case "3":
+			next := probeModeOff
+			if cfg.ProbeMode == probeModeOff {
+				next = probeModeOn
+			}
+			if err := c.request(http.MethodPut, "/v1/config", map[string]any{"probe_mode": next}, nil); err != nil {
+				fmt.Println("修改失败:", err)
+			} else if next == probeModeOn {
+				fmt.Println("线路测试已开启。")
+			} else {
+				fmt.Println("线路测试已关闭。")
+			}
+		case "0":
+			return
+		default:
+			fmt.Println("无效选项。")
+		}
+	}
+}
+
 func manageShowConfig(c *localClient) {
 	cfg, err := getLocalConfig(c)
 	if err != nil {
@@ -2315,6 +2532,11 @@ func manageShowConfig(c *localClient) {
 	fmt.Printf("Agent 接入地址   : %s\n", dash(cfg.PublicURL))
 	fmt.Printf("网络模式         : %s\n", accessModeLabel(cfg.AccessMode))
 	fmt.Printf("Dashboard        : %s\n", dashboardModeLabel(cfg.DashboardMode))
+	probeState := "关闭"
+	if cfg.ProbeMode != probeModeOff {
+		probeState = cfg.ProbeRegionLabel + " · " + cfg.ProbeProtocolLabel
+	}
+	fmt.Printf("国内线路测试     : %s\n", probeState)
 	fmt.Printf("节点数量         : %d / %d\n", len(nodes), cfg.NodeSoftLimit)
 	fmt.Printf("Telegram         : %s\n", map[bool]string{true: "Enabled", false: "Disabled"}[cfg.TelegramEnabled])
 	fmt.Printf("流量摘要         : %s\n", summaryLabel(cfg.TelegramSummaryHours))

@@ -84,11 +84,53 @@ function trafficMetric(n){
   return `<div class="metric traffic"><div class="metric-head"><span class="metric-name"><i>${metricIcon('traffic')}</i>流量</span><strong>${p.toFixed(1)}%</strong></div><div class="bar"><div class="fill" style="width:${p}%"></div></div><div class="metric-detail">${fmtTraffic(used)} / ${fmtTraffic(limit)}</div></div>`;
 }
 
+function stateClass(v){return Number.isInteger(v)&&v>=0&&v<=3?`s${v}`:''}
+function trimHistory(values,count=20){
+  let h=[...(values||[])].slice(-count);
+  while(h.length<count) h.unshift(-1);
+  return h;
+}
+function latencyState(ms){
+  if(!Number.isFinite(ms)||ms<0) return 3;
+  if(ms>200) return 2;
+  if(ms>100) return 1;
+  return 0;
+}
+function lossState(pct){
+  const v=Number(pct||0);
+  if(v>=100) return 3;
+  if(v>=50) return 2;
+  if(v>0) return 1;
+  return 0;
+}
+function probeTrack(values,kind){
+  return `<div class="hist ${kind}-hist">${trimHistory(values).map(v=>`<i class="sq ${stateClass(v)}"></i>`).join('')}</div>`;
+}
 function probe(p){
-  if(p.available===false) return `<div class="probe unavailable"><div class="probe-top"><span class="name">${esc(p.name)}</span><span class="latency">N/A</span><span class="loss">N/A</span></div><div class="hist">${'<i class="sq"></i>'.repeat(30)}</div></div>`;
-  const latency=Number(p.latency_ms),timedOut=!Number.isFinite(latency)||latency<0;
-  let h=[...(p.history||[])];while(h.length<30)h.unshift(-1);
-  return `<div class="probe ${timedOut?'timeout':''}"><div class="probe-top"><span class="name">${esc(p.name)}</span><span class="latency">${timedOut?'超时':latency.toFixed(0)+' ms'}</span><span class="loss">${Number(p.loss_pct||0).toFixed(1)}%</span></div><div class="hist">${h.map(v=>`<i class="sq ${v>=0?'g'+v:''}"></i>`).join('')}</div></div>`;
+  const available=p.available!==false;
+  const latency=Number(p.latency_ms),loss=Number(p.loss_pct||0);
+  const timedOut=!available||!Number.isFinite(latency)||latency<0;
+  const latNow=available?latencyState(latency):-1;
+  const lossNow=available?lossState(loss):-1;
+
+  let latHist=(p.latency_history||[]);
+  if(!latHist.length) latHist=[...(p.history||[])];
+  let lossHist=(p.loss_history||[]);
+  if(!lossHist.length){
+    lossHist=[...(p.history||[])].map(v=>Number(v)===3?3:0);
+    if(lossHist.length) lossHist[lossHist.length-1]=lossNow;
+  }
+
+  return `<div class="probe ${available?'':'unavailable'}">
+    <div class="probe-half">
+      <div class="probe-line"><span class="name">${esc(p.name)}</span><span class="probe-value latency ${stateClass(latNow)}">${available?(timedOut?'超时':latency.toFixed(0)+' ms'):'N/A'}</span></div>
+      ${probeTrack(available?latHist:[],'latency')}
+    </div>
+    <div class="probe-half">
+      <div class="probe-line"><span></span><span class="probe-value loss ${stateClass(lossNow)}">${available?loss.toFixed(1)+'%':'N/A'}</span></div>
+      ${probeTrack(available?lossHist:[],'loss')}
+    </div>
+  </div>`;
 }
 
 function miniBox(label,body,klass=''){
@@ -98,6 +140,7 @@ function miniBox(label,body,klass=''){
 function card(n){
   const m=n.metrics||{},i=n.info||{},t=n.traffic||{},os=osIdentity(i.os),exp=expiryInfo(n.expire_at),price=priceText(n),region=regionCode(n);
   const name=n.display_name||n.node_id;
+  const probeProtocol=String(n.probe_protocol||'').toUpperCase();
   const tagHtml=(n.tags||[]).filter(x=>String(x).toUpperCase()!==region).map(x=>`<span class="tag">${esc(x)}</span>`).join('');
   const planBody=(exp.text||price)?`<span class="plan-primary ${exp.days!==null&&exp.days<=7?'urgent':''}">${esc(exp.text||'未设置到期')}</span><span>${esc(price||'未设置价格')}</span>`:`<span class="plan-primary">未设置</span><span>套餐信息</span>`;
   return `<article class="card ${n.online?'':'offline-card'}">
@@ -125,8 +168,8 @@ function card(n){
     </div>
 
     <div class="probe-panel">
-      <div class="probe-head"><span>线路质量</span><span>延迟 · 丢包 · 最近30次</span></div>
-      ${(n.probes||[]).map(probe).join('')||'<div class="small waiting">等待线路探测数据…</div>'}
+      ${probeProtocol&&probeProtocol!=='OFF'?`<span class="probe-protocol">${esc(probeProtocol)}</span>`:''}
+      ${probeProtocol==='OFF'?'<div class="small waiting">线路测试已关闭</div>':((n.probes||[]).map(probe).join('')||'<div class="small waiting">等待线路探测数据…</div>')}
     </div>
 
     ${tagHtml?`<div class="footer">${tagHtml}</div>`:''}

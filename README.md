@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.1-alpha`
+当前版本：`v0.4.2-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 最简单的使用方式：Direct IP
 
-发布 `v0.4.1-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.2-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -259,11 +259,30 @@ Agent 当前采集：
 - uptime
 - OS / Kernel / Architecture / Virtualization
 - IPv4 / IPv6
-- 三线路 TCP 延迟
-- 丢包率
-- 最近 30 次线路状态条（线路探测约每 10 秒更新一次，避免低配 VPS 做无意义的高频连接）
+- 国内三网线路延迟 / 失败率（Server 全局选择北京、上海或广州）
+- 探测协议可选 ICMP / TCP / UDP
+- ICMP：Ping RTT + packet loss
+- TCP：TCP/53 connect RTT + connect failure rate
+- UDP：UDP/53 DNS query RTT + query failure rate
+- Dashboard 分开显示最近 20 次延迟历史与失败/丢包历史（Agent 内部保留小型历史窗口；探测约每 10 秒更新一次）
 
 Dashboard 节点卡片直接显示月流量，而不是拿“开机以来网卡总流量”冒充月流量。
+
+## 国内线路测试
+
+SSH 执行 `miniprobe`，进入 `11. 国内线路测试` 后可全局选择：
+
+```text
+城市：北京 / 上海 / 广州
+协议：ICMP / TCP / UDP
+状态：开启 / 关闭
+```
+
+城市和协议由 Server 通过独立的 Ed25519 签名 Probe Policy 下发给所有 Agent。Dashboard 线路名直接显示城市，例如 `广州电信 / 广州联通 / 广州移动`，右上角用轻量标签显示当前协议。
+
+预设目标使用对应城市运营商 DNS 节点；TCP / UDP 使用 53 端口，ICMP 使用 Echo Request。不同协议的“失败率/丢包”语义不同，因此 Dashboard 同时保留协议标签，避免把 TCP/UDP 失败率误读成 ICMP packet loss。
+
+当前这组城市预设目标以 IPv4 为主；IPv6-only Agent 无 IPv4 出口时会把该线路测试显示为 N/A，不影响 CPU / 内存 / 磁盘 / 流量等其它监控。后续只有在找到稳定且城市/运营商归属明确的 IPv6 测试目标后才会加入，避免为了“支持”而混用不可靠节点。
 
 ---
 
@@ -548,7 +567,7 @@ SHA256SUMS
 
 # 12. 当前版本说明
 
-`v0.4.1-alpha` 在保持现有安全边界和部署方式不变的基础上，重点优化 Dashboard 的信息层级、紧凑度和隐私显示：
+`v0.4.2-alpha` 在保持现有安全边界和部署方式不变的基础上，重点优化 Dashboard 的信息层级、紧凑度和隐私显示：
 
 ```text
 Direct IP 默认部署
@@ -567,7 +586,11 @@ Dashboard 不显示节点公网 IP
 节点名前按名称/标签识别常见国家或地区旗帜
 系统信息增加 Debian / Ubuntu / Alpine 等识别图标
 月租 / 到期剩余时间进入节点卡片
-线路质量区域强化层级并区分超时 / N/A
+线路质量按参考模板拆成延迟历史 + 丢包/失败历史两组
+线路名包含城市（例如广州联通）
+线路协议可在 SSH 菜单全局选择 ICMP / TCP / UDP
+线路城市可在 SSH 菜单全局选择北京 / 上海 / 广州
+线路区域右上角显示轻量协议标签
 ```
 
 目前不追求商用规模，也不加入远程服务器管理功能。
