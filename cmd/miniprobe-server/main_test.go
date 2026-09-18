@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"net/http/httptest"
+	"testing"
+	"time"
+)
 
 func TestParseTZOffset(t *testing.T) {
 	cases := map[string]int{"+08:00": 480, "UTC+08:00": 480, "-05:30": -330, "+00:00": 0}
@@ -34,5 +38,37 @@ func TestTrafficGBUsesDecimalUnits(t *testing.T) {
 	}
 	if got := formatTrafficBytes(200_000_000_000); got != "200.0 GB" {
 		t.Fatalf("unexpected traffic format: %q", got)
+	}
+}
+
+func TestDashboardSessionTokenTrustedForThirtyDaysAndPasswordBound(t *testing.T) {
+	s := &server{
+		secret: []byte("0123456789abcdef0123456789abcdef"),
+		db:     database{Settings: settings{DashboardMode: dashboardProtected, DashboardPassword: hashPassword("correct horse battery staple")}},
+	}
+	now := time.Now().Truncate(time.Second)
+	token := s.newDashboardSessionToken(now.Add(dashboardSessionTTL))
+	if !s.validDashboardSessionToken(token, now) {
+		t.Fatal("fresh 30-day Dashboard session token should be valid")
+	}
+	if s.validDashboardSessionToken(token, now.Add(dashboardSessionTTL+time.Second)) {
+		t.Fatal("expired Dashboard session token should be rejected")
+	}
+	s.db.Settings.DashboardPassword = hashPassword("a different secure password")
+	if s.validDashboardSessionToken(token, now) {
+		t.Fatal("changing Dashboard password must invalidate trusted-device sessions")
+	}
+}
+
+func TestForwardedHTTPSOnlyTrustedFromLoopback(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://example.test/", nil)
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.RemoteAddr = "203.0.113.9:43210"
+	if requestIsTLS(r) {
+		t.Fatal("public Direct client must not be able to spoof HTTPS with X-Forwarded-Proto")
+	}
+	r.RemoteAddr = "127.0.0.1:43210"
+	if !requestIsTLS(r) {
+		t.Fatal("local cloudflared-style HTTPS forwarding should be trusted")
 	}
 }

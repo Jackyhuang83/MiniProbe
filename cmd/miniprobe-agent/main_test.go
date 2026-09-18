@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -112,5 +113,24 @@ func TestDNSQuery(t *testing.T) {
 	q := dnsQuery(0x1234)
 	if len(q) < 20 || q[0] != 0x12 || q[1] != 0x34 {
 		t.Fatalf("invalid DNS query: %x", q)
+	}
+}
+
+func TestICMPProbeIDsAndReplySourceIsolation(t *testing.T) {
+	idTelecom := icmpProbeID("广州电信", "202.96.128.86")
+	idUnicom := icmpProbeID("广州联通", "210.21.4.130")
+	idMobile := icmpProbeID("广州移动", "211.136.192.6")
+	if idTelecom == 0 || idUnicom == 0 || idMobile == 0 {
+		t.Fatal("ICMP identifier must never be zero")
+	}
+	if idTelecom == idUnicom || idTelecom == idMobile || idUnicom == idMobile {
+		t.Fatalf("carrier probes unexpectedly share identifiers: %d %d %d", idTelecom, idUnicom, idMobile)
+	}
+	target := net.ParseIP("202.96.128.86").To4()
+	if !icmpReplyFromTarget(&net.IPAddr{IP: net.ParseIP("202.96.128.86")}, target) {
+		t.Fatal("matching ICMP source should be accepted")
+	}
+	if icmpReplyFromTarget(&net.IPAddr{IP: net.ParseIP("211.136.192.6")}, target) {
+		t.Fatal("reply from another carrier target must be rejected")
 	}
 }

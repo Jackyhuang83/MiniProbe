@@ -10,7 +10,8 @@
   <section id="loginView" class="login-wrap hidden">
     <form id="loginForm" class="login-card">
       <div class="login-brand">MiniProbe</div>
-      <div class="login-sub">只读监控面板</div>
+      <div class="login-sub">只读监控面板 · 登录后信任此设备 30 天</div>
+      <div id="loginSecurityWarning" class="form-warning hidden"></div>
       <label>Dashboard 密码
         <input id="loginPass" type="password" autocomplete="current-password" required autofocus>
       </label>
@@ -28,6 +29,7 @@
       </div>
     </header>
     <main>
+      <div id="securityWarning" class="warning-banner security-warning hidden"></div>
       <div id="nodeWarning" class="warning-banner hidden"></div>
       <div id="grid" class="grid"></div>
     </main>

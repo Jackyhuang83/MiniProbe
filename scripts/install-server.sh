@@ -22,7 +22,7 @@ DATA_DIR=${MINIPROBE_DATA_DIR:-/var/lib/miniprobe}
 DOWNLOADS_DIR="$INSTALL_DIR/downloads"
 ADMIN_SOCKET=${MINIPROBE_ADMIN_SOCKET:-/run/miniprobe/admin.sock}
 BUNDLE_DIR=${MINIPROBE_BUNDLE_DIR:-}
-VERSION=${MINIPROBE_VERSION:-v0.4.3-alpha}
+VERSION=${MINIPROBE_VERSION:-v0.4.4-alpha}
 RELEASE_BASE=${MINIPROBE_RELEASE_BASE:-https://github.com/Jackyhuang83/MiniProbe/releases/download/$VERSION}
 PUBLIC_URL=${MINIPROBE_PUBLIC_URL:-}
 DASHBOARD_MODE=${MINIPROBE_DASHBOARD_MODE:-protected}
@@ -172,7 +172,14 @@ LogRateLimitBurst=20
 WantedBy=multi-user.target
 UNIT
   systemctl daemon-reload
-  systemctl enable --now miniprobe-server >/dev/null
+  systemctl enable miniprobe-server >/dev/null
+  # An upgrade replaces the binary atomically. Explicitly restart an already
+  # running service so it begins executing the new inode immediately.
+  if systemctl is-active --quiet miniprobe-server; then
+    systemctl restart miniprobe-server
+  else
+    systemctl start miniprobe-server
+  fi
 elif command -v rc-service >/dev/null 2>&1; then
   cat > /etc/init.d/miniprobe-server <<RC
 #!/sbin/openrc-run
@@ -204,6 +211,9 @@ echo "============================================================"
 echo " MiniProbe 已安装"
 echo " Agent / Dashboard 地址: $PUBLIC_URL"
 echo " 管理方式: SSH 登录本机后执行  miniprobe"
+case "$PUBLIC_URL" in
+  http://*) echo " 安全提示: 当前 Direct HTTP 未加密，仅建议用于首次部署 / 故障恢复；正式公网使用请在 miniprobe 菜单 8 启用 Cloudflare Tunnel HTTPS。" ;;
+esac
 if [ "$FIRST_INSTALL" = "1" ]; then
   case "$DASHBOARD_MODE" in
     public) echo " Dashboard: Public" ;;

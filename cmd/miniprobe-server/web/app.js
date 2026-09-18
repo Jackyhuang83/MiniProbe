@@ -69,6 +69,20 @@ async function api(url, opts={}){
 }
 
 function show(id){['loginView','appView','disabledView'].forEach(x=>$('#'+x).classList.toggle('hidden',x!==id))}
+
+function updateSecurityBanner(session){
+  const insecure=session?.mode!=='disabled' && session?.secure===false;
+  const el=$('#securityWarning');
+  if(el){
+    el.classList.toggle('hidden',!insecure);
+    if(insecure) el.textContent='⚠ 当前通过 HTTP 直连访问，传输未加密。建议在 Server SSH 菜单 8 启用 Cloudflare Tunnel HTTPS。';
+  }
+  const loginEl=$('#loginSecurityWarning');
+  if(loginEl){
+    loginEl.classList.toggle('hidden',!insecure);
+    if(insecure) loginEl.textContent='⚠ 当前连接为 HTTP，密码传输未加密。建议通过 SSH 菜单 8 配置 HTTPS 后再长期使用。';
+  }
+}
 const METRIC_ICONS={
   cpu:'<svg class="metric-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6" rx="1"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>',
   mem:'<svg class="metric-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6" width="16" height="12" rx="2"/><path d="M8 9v6M12 9v6M16 9v6M7 3v3M11 3v3M15 3v3M7 18v3M11 18v3M15 18v3"/></svg>',
@@ -197,6 +211,7 @@ async function boot(){
   try{
     const s=await api('/api/v1/dashboard/session');
     dashboardMode=s.mode;
+    updateSecurityBanner(s);
     if(s.mode==='disabled'){show('disabledView');return}
     if(s.mode==='protected'&&!s.authenticated){show('loginView');return}
     show('appView');
@@ -211,7 +226,8 @@ async function boot(){
 $('#loginForm').addEventListener('submit',async e=>{
   e.preventDefault();$('#loginError').textContent='';
   try{
-    await api('/api/v1/dashboard/login',{method:'POST',body:{password:$('#loginPass').value}});
+    const result=await api('/api/v1/dashboard/login',{method:'POST',body:{password:$('#loginPass').value}});
+    updateSecurityBanner({mode:'protected',secure:result?.secure===true});
     $('#loginPass').value='';show('appView');$('#logoutBtn').classList.remove('hidden');await refresh();
   }catch(err){$('#loginError').textContent=err.status===429?'尝试次数过多，请稍后再试。':'密码错误'}
 });

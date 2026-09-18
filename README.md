@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.3-alpha`
+当前版本：`v0.4.4-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -12,8 +12,8 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 ## 设计原则
 
-- Server 默认直接通过 `IP:28888` 使用，先保证部署简单。
-- 可选 Cloudflare Tunnel；验证成功后 MiniProbe 仅监听 `127.0.0.1:28888`，公网 `IP:28888` 不再提供访问。
+- Direct `http://IP:28888` 仅作为最简单的首次部署 / 故障恢复入口；它没有 TLS，不建议长期暴露在公网。
+- 正式公网使用推荐 Cloudflare Tunnel / HTTPS；验证成功后 MiniProbe 仅监听 `127.0.0.1:28888`，公网 `IP:28888` 不再提供访问。
 - Web 只负责查看 Dashboard；节点管理只允许 SSH 登录 Server 后执行 `miniprobe`。
 - Agent 主动连接 Server，不需要 Agent 开放任何 MiniProbe 入站端口。
 - 无 WebShell、无 SSH 管理、无任意远程命令执行。
@@ -23,9 +23,9 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 ---
 
-# 1. 最简单的使用方式：Direct IP
+# 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.3-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.4-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -69,7 +69,7 @@ miniprobe
  5. 删除节点
  6. 重置节点 Token
  7. Dashboard 设置
- 8. 网络接入方式（Direct / Cloudflare Tunnel）
+ 8. 安全访问（HTTPS / Cloudflare Tunnel）
  9. Telegram 通知
 10. 存储 / 当前设置
  0. 退出
@@ -137,7 +137,7 @@ https://probe.example.com
 
 # 3. Cloudflare Tunnel
 
-MiniProbe 默认不强迫使用 Cloudflare Tunnel，因为 Direct IP 部署最简单。
+MiniProbe 允许先用 Direct HTTP 完成首次部署，但 Direct 模式没有 TLS。正式公网使用推荐切换 Cloudflare Tunnel / HTTPS。
 
 确认 Direct 模式工作正常后，可以运行：
 
@@ -148,8 +148,8 @@ miniprobe
 选择：
 
 ```text
-8. 网络接入方式
-2. Cloudflare Tunnel
+8. 安全访问（HTTPS / Cloudflare Tunnel）
+2. Cloudflare Tunnel HTTPS
 ```
 
 MiniProbe 会提示你先在 Cloudflare 创建一个 **Remotely-managed Tunnel**，并将 Public Hostname 的 Service 指向：
@@ -218,8 +218,12 @@ SSH 菜单中可选择：
 - PBKDF2-HMAC-SHA256
 - 登录速率限制
 - HttpOnly / SameSite Session Cookie
+- 登录成功后当前浏览器 / 设备信任 30 天；30 天到期后重新输入密码
+- Session 使用 Server 本地 Secret 做 HMAC 签名，不在磁盘保存明文密码或原始 Session Token
+- 修改 Dashboard 密码会立即使旧的 30 天可信会话失效
+- HTTPS / Cloudflare Tunnel 下 Cookie 自动启用 `Secure`
 
-如果 Direct 模式仍使用 HTTP，密码传输本身没有 TLS 保护；正式公网使用建议切换 Cloudflare Tunnel / HTTPS。
+如果 Direct 模式仍使用 HTTP，Dashboard 会显示未加密警告。密码和会话传输本身没有 TLS 保护；正式公网使用应切换 Cloudflare Tunnel / HTTPS。
 
 ### Disabled
 
@@ -567,10 +571,10 @@ SHA256SUMS
 
 # 12. 当前版本说明
 
-`v0.4.2-alpha` 在保持现有安全边界和部署方式不变的基础上，重点优化 Dashboard 的信息层级、紧凑度和隐私显示：
+`v0.4.4-alpha` 重点修复 ICMP 线路测试归属、Dashboard 30 天可信设备会话，并强化 HTTPS 安全访问引导：
 
 ```text
-Direct IP 默认部署
+Direct HTTP 用于首次部署 / 故障恢复
 Cloudflare Tunnel 可选升级
 NAT / IPv6-only Agent
 只读 Dashboard
@@ -591,6 +595,11 @@ Dashboard 不显示节点公网 IP
 线路协议可在 SSH 菜单全局选择 ICMP / TCP / UDP
 线路城市可在 SSH 菜单全局选择北京 / 上海 / 广州
 线路区域右上角显示轻量协议标签
+ICMP 回复必须匹配目标源 IP，并为三运营商分配独立 identifier，防止并发串数据
+Dashboard 正确登录后信任当前设备 30 天
+Direct HTTP 明确标注为未加密，Dashboard 显示安全警告
+Cloudflare Tunnel HTTPS 作为推荐正式公网入口
+Server 安装器升级时会显式重启正在运行的 systemd 服务
 ```
 
 目前不追求商用规模，也不加入远程服务器管理功能。

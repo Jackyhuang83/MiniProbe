@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	agentVersion  = "0.4.3-alpha"
+	agentVersion  = "0.4.4-alpha"
 	probeInterval = 10 * time.Second
 )
 
@@ -753,6 +753,7 @@ func probeTarget(protocol, name, target string) common.ProbeResult {
 	const attempts = 4
 	var ok int
 	var sum float64
+	icmpID := icmpProbeID(name, target)
 	for i := 0; i < attempts; i++ {
 		var ms float64
 		var success bool
@@ -762,7 +763,7 @@ func probeTarget(protocol, name, target string) common.ProbeResult {
 		case "udp":
 			ms, success = probeUDPOnce(target, uint16((time.Now().UnixNano()+int64(i))&0xffff))
 		default:
-			ms, success = probeICMPOnce(target, uint16(os.Getpid()&0xffff), uint16(i+1))
+			ms, success = probeICMPOnce(target, icmpID, uint16(i+1))
 		}
 		if success {
 			ok++
@@ -860,11 +861,34 @@ func dnsQuery(id uint16) []byte {
 	return q
 }
 
+func icmpProbeID(name, target string) uint16 {
+	// Each concurrent carrier probe uses its own identifier space. Linux raw
+	// ICMP sockets may observe replies for other sockets, so a distinct ID is a
+	// second line of defense in addition to validating the reply source IP.
+	h := uint32(2166136261)
+	for _, b := range []byte(name + "\x00" + target) {
+		h ^= uint32(b)
+		h *= 16777619
+	}
+	h ^= uint32(os.Getpid())
+	id := uint16(h ^ (h >> 16))
+	if id == 0 {
+		id = 1
+	}
+	return id
+}
+
+func icmpReplyFromTarget(addr net.Addr, target net.IP) bool {
+	src, ok := addr.(*net.IPAddr)
+	return ok && src.IP != nil && target != nil && src.IP.Equal(target)
+}
+
 func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
 	ip := net.ParseIP(target)
 	if ip == nil || ip.To4() == nil {
 		return 0, false
 	}
+	targetIP := ip.To4()
 	conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		return 0, false
@@ -879,14 +903,20 @@ func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
 	binary.BigEndian.PutUint64(packet[16:24], uint64(seq))
 	binary.BigEndian.PutUint16(packet[2:4], icmpChecksum(packet))
 	start := time.Now()
-	if _, err := conn.WriteTo(packet, &net.IPAddr{IP: ip}); err != nil {
+	if _, err := conn.WriteTo(packet, &net.IPAddr{IP: targetIP}); err != nil {
 		return 0, false
 	}
 	buf := make([]byte, 1500)
 	for {
-		n, _, err := conn.ReadFrom(buf)
+		n, addr, err := conn.ReadFrom(buf)
 		if err != nil {
 			return 0, false
+		}
+		// Raw ICMP sockets can receive echo replies destined for another probe
+		// running concurrently in this process. Never attribute a reply unless
+		// its source IP is the exact carrier target currently being measured.
+		if !icmpReplyFromTarget(addr, targetIP) {
+			continue
 		}
 		msg := buf[:n]
 		if len(msg) >= 20 && msg[0]>>4 == 4 {

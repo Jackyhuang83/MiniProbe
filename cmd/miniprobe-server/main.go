@@ -11,6 +11,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -39,15 +40,16 @@ import (
 var assets embed.FS
 
 const (
-	cookieName       = "miniprobe_dashboard"
-	pbkdf2Iters      = 210000
-	databaseVer      = 5
-	defaultListen    = ":28888"
-	defaultAdminSock = "/run/miniprobe/admin.sock"
-	maxRequestBody   = 1 << 20
-	softNodeLimit    = 15
-	storageHardLimit = uint64(2 * 1024 * 1024 * 1024)
-	dataFileMaxBytes = 256 * 1024 * 1024
+	cookieName          = "miniprobe_dashboard"
+	pbkdf2Iters         = 210000
+	databaseVer         = 5
+	defaultListen       = ":28888"
+	defaultAdminSock    = "/run/miniprobe/admin.sock"
+	maxRequestBody      = 1 << 20
+	softNodeLimit       = 15
+	storageHardLimit    = uint64(2 * 1024 * 1024 * 1024)
+	dataFileMaxBytes    = 256 * 1024 * 1024
+	dashboardSessionTTL = 30 * 24 * time.Hour
 )
 
 const (
@@ -179,10 +181,6 @@ type database struct {
 	Notifications map[string]notificationState `json:"notifications,omitempty"`
 }
 
-type session struct {
-	Expires time.Time
-}
-
 type loginFailures struct {
 	Times []time.Time
 }
@@ -195,11 +193,9 @@ type server struct {
 	downloadsDir string
 	adminSocket  string
 
-	sessionMu sync.Mutex
-	sessions  map[string]session
-	loginMu   sync.Mutex
-	failures  map[string]loginFailures
-	notifyCh  chan string
+	loginMu  sync.Mutex
+	failures map[string]loginFailures
+	notifyCh chan string
 }
 
 type adminNodeView struct {
@@ -248,7 +244,7 @@ func main() {
 	dataFile := filepath.Join(*dataDir, "miniprobe.json")
 	s := &server{
 		dataFile: dataFile, downloadsDir: *downloads, adminSocket: *adminSocket,
-		sessions: map[string]session{}, failures: map[string]loginFailures{}, notifyCh: make(chan string, 128),
+		failures: map[string]loginFailures{}, notifyCh: make(chan string, 128),
 	}
 	created, generatedDashboardPass, err := s.loadOrInit(*publicURL, *initDashboardMode, *initDashboardPassword)
 	if err != nil {
@@ -268,7 +264,6 @@ func main() {
 	}
 
 	go s.persistenceLoop()
-	go s.sessionCleanupLoop()
 	go s.notificationLoop()
 	go s.offlineMonitorLoop()
 	go s.trafficSummaryLoop()
@@ -594,7 +589,9 @@ func (s *server) dashboardSessionInfo(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
 	mode := s.dashboardMode()
 	authenticated := mode == dashboardPublic || (mode == dashboardProtected && s.hasDashboardSession(r))
-	writeJSON(w, http.StatusOK, map[string]any{"mode": mode, "authenticated": authenticated})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"mode": mode, "authenticated": authenticated, "secure": requestIsTLS(r), "trust_days": 30,
+	})
 }
 
 func (s *server) dashboardLogin(w http.ResponseWriter, r *http.Request) {
@@ -629,17 +626,17 @@ func (s *server) dashboardLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.clearLoginFailures(ip)
-	token := base64.RawURLEncoding.EncodeToString(randomBytes(32))
-	expires := time.Now().Add(24 * time.Hour)
-	s.sessionMu.Lock()
-	s.sessions[token] = session{Expires: expires}
-	s.sessionMu.Unlock()
-	cookie := &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Expires: expires, MaxAge: 86400}
+	expires := time.Now().Add(dashboardSessionTTL)
+	token := s.newDashboardSessionToken(expires)
+	cookie := &http.Cookie{
+		Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		Expires: expires, MaxAge: int(dashboardSessionTTL / time.Second),
+	}
 	if requestIsTLS(r) {
 		cookie.Secure = true
 	}
 	http.SetCookie(w, cookie)
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "secure": requestIsTLS(r), "trusted_until": expires.UTC()})
 }
 
 func (s *server) dashboardLogout(w http.ResponseWriter, r *http.Request) {
@@ -651,12 +648,11 @@ func (s *server) dashboardLogout(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	if c, err := r.Cookie(cookieName); err == nil {
-		s.sessionMu.Lock()
-		delete(s.sessions, c.Value)
-		s.sessionMu.Unlock()
+	cookie := &http.Cookie{Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode}
+	if requestIsTLS(r) {
+		cookie.Secure = true
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Path: "/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+	http.SetCookie(w, cookie)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -706,16 +702,44 @@ func (s *server) hasDashboardSession(r *http.Request) bool {
 	if err != nil || len(c.Value) < 20 {
 		return false
 	}
-	s.sessionMu.Lock()
-	defer s.sessionMu.Unlock()
-	sess, ok := s.sessions[c.Value]
-	if !ok || time.Now().After(sess.Expires) {
-		if ok {
-			delete(s.sessions, c.Value)
-		}
+	return s.validDashboardSessionToken(c.Value, time.Now())
+}
+
+func (s *server) newDashboardSessionToken(expires time.Time) string {
+	payload := make([]byte, 8+16)
+	binary.BigEndian.PutUint64(payload[:8], uint64(expires.Unix()))
+	copy(payload[8:], randomBytes(16))
+	mac := s.dashboardSessionMAC(payload)
+	return base64.RawURLEncoding.EncodeToString(append(payload, mac...))
+}
+
+func (s *server) validDashboardSessionToken(raw string, now time.Time) bool {
+	b, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil || len(b) != 8+16+sha256.Size {
 		return false
 	}
-	return true
+	payload, gotMAC := b[:24], b[24:]
+	expiresUnix := int64(binary.BigEndian.Uint64(payload[:8]))
+	if expiresUnix <= now.Unix() || expiresUnix > now.Add(dashboardSessionTTL+5*time.Minute).Unix() {
+		return false
+	}
+	wantMAC := s.dashboardSessionMAC(payload)
+	return hmac.Equal(gotMAC, wantMAC)
+}
+
+func (s *server) dashboardSessionMAC(payload []byte) []byte {
+	// Bind long-lived sessions to the current Dashboard password hash. Changing
+	// the password therefore invalidates every previously trusted device without
+	// storing raw session tokens or passwords on disk.
+	s.mu.RLock()
+	passwordHash := s.db.Settings.DashboardPassword.Hash
+	s.mu.RUnlock()
+	mac := hmac.New(sha256.New, s.secret)
+	_, _ = mac.Write([]byte("miniprobe-dashboard-session-v1\x00"))
+	_, _ = mac.Write([]byte(passwordHash))
+	_, _ = mac.Write([]byte{0})
+	_, _ = mac.Write(payload)
+	return mac.Sum(nil)
 }
 
 func (s *server) installAgentScript(w http.ResponseWriter, r *http.Request) {
@@ -986,7 +1010,6 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 			s.db.Settings.PolicyVersion++
 		}
 		s.mu.Unlock()
-		s.clearDashboardSessions()
 		if err := s.save(); err != nil {
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -1537,27 +1560,6 @@ func formatTZOffset(minutes int) string {
 	return fmt.Sprintf("UTC%s%02d:%02d", sign, minutes/60, minutes%60)
 }
 
-func (s *server) sessionCleanupLoop() {
-	t := time.NewTicker(10 * time.Minute)
-	defer t.Stop()
-	for range t.C {
-		now := time.Now()
-		s.sessionMu.Lock()
-		for k, v := range s.sessions {
-			if now.After(v.Expires) {
-				delete(s.sessions, k)
-			}
-		}
-		s.sessionMu.Unlock()
-	}
-}
-
-func (s *server) clearDashboardSessions() {
-	s.sessionMu.Lock()
-	s.sessions = map[string]session{}
-	s.sessionMu.Unlock()
-}
-
 func validDashboardMode(mode string) bool {
 	return mode == dashboardPublic || mode == dashboardProtected || mode == dashboardDisabled
 }
@@ -1651,6 +1653,16 @@ func validSameOriginMutation(r *http.Request) bool {
 func requestIsTLS(r *http.Request) bool {
 	if r.TLS != nil {
 		return true
+	}
+	// MiniProbe's supported HTTPS proxy is the local cloudflared process. Do not
+	// trust X-Forwarded-Proto from arbitrary Direct-mode clients on the Internet.
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil || !ip.IsLoopback() {
+		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")
 }
@@ -1846,7 +1858,7 @@ func runManager(socketPath string) error {
 		fmt.Println(" 5. 删除节点")
 		fmt.Println(" 6. 重置节点 Token")
 		fmt.Println(" 7. Dashboard 设置")
-		fmt.Println(" 8. 网络接入方式（Direct / Cloudflare Tunnel）")
+		fmt.Println(" 8. 安全访问（HTTPS / Cloudflare Tunnel）")
 		fmt.Println(" 9. Telegram 通知")
 		fmt.Println("10. 存储 / 当前设置")
 		fmt.Println("11. 国内线路测试（北京 / 上海 / 广州）")
@@ -2247,8 +2259,11 @@ func manageNetworkAccess(r *bufio.Reader, c *localClient, socketPath string) {
 		return
 	}
 	fmt.Printf("\n当前模式：%s\n当前地址：%s\n", accessModeLabel(cfg.AccessMode), cfg.PublicURL)
-	fmt.Println(" 1. Direct IP:28888（默认，最简单）")
-	fmt.Println(" 2. Cloudflare Tunnel（HTTPS，成功后公网 IP:28888 自动停止监听）")
+	if cfg.AccessMode == accessDirect {
+		fmt.Println("安全状态：HTTP Direct 未加密，不建议长期公网使用。")
+	}
+	fmt.Println(" 1. Direct HTTP（仅临时 / 故障恢复，不推荐长期公网使用）")
+	fmt.Println(" 2. Cloudflare Tunnel HTTPS（推荐；成功后公网 IP:28888 自动停止监听）")
 	fmt.Println(" 0. 返回")
 	choice := prompt(r, "请选择: ")
 	switch choice {
@@ -2600,7 +2615,7 @@ func accessModeLabel(mode string) string {
 	if mode == accessTunnel {
 		return "Cloudflare Tunnel"
 	}
-	return "Direct IP:28888"
+	return "Direct HTTP :28888（未加密）"
 }
 
 func yesNo(v bool) string {
