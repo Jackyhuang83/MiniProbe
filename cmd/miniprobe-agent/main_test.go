@@ -162,3 +162,61 @@ func TestClassifyNetworkTypes(t *testing.T) {
 		})
 	}
 }
+
+func TestRollingLossMatchesTwentyRoundWindow(t *testing.T) {
+	key := "test-rolling-loss-window"
+	probeStates.Delete(key)
+	defer probeStates.Delete(key)
+
+	var rolling float64
+	for i := 0; i < probeHistoryWindow; i++ {
+		lost := 0
+		if i == 0 {
+			lost = 1
+		}
+		_, _, _, rolling = appendHistories(key, 0, 0, lossQuality(float64(lost)*25), 4, lost)
+	}
+	if rolling != 1.25 { // 1 lost out of 80 packets.
+		t.Fatalf("rolling loss got %.4f want 1.25", rolling)
+	}
+
+	// The 21st round pushes the first (lossy) round out of the displayed
+	// 20-round history window, so the displayed rolling loss must return to 0.
+	_, _, _, rolling = appendHistories(key, 0, 0, 0, 4, 0)
+	if rolling != 0 {
+		t.Fatalf("rolling loss after window shift got %.4f want 0", rolling)
+	}
+}
+
+func TestClassifyIPNature(t *testing.T) {
+	cases := []struct {
+		name string
+		in   ipTraits
+		want string
+	}{
+		{name: "residential", in: ipTraits{GeoCountry: "US", RegCountry: "US", ISP: "Comcast Cable", Org: "Comcast", IsDatacenter: false}, want: "家宽"},
+		{name: "native datacenter", in: ipTraits{GeoCountry: "HK", RegCountry: "HK", ISP: "Example Hosting", IsDatacenter: true}, want: "原生"},
+		{name: "broadcast datacenter", in: ipTraits{GeoCountry: "HK", RegCountry: "US", ISP: "Example Hosting", IsDatacenter: true}, want: "广播"},
+		{name: "do not call mobile home broadband", in: ipTraits{GeoCountry: "JP", RegCountry: "JP", ISP: "NTT Mobile", IsMobile: true}, want: "原生"},
+		{name: "unknown registration", in: ipTraits{GeoCountry: "SG", ISP: "Unknown Network"}, want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifyIPNature(tc.in); got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindRDAPCountry(t *testing.T) {
+	raw := map[string]any{
+		"objectClassName": "ip network",
+		"entities": []any{
+			map[string]any{"handle": "x", "country": "hk"},
+		},
+	}
+	if got := findRDAPCountry(raw); got != "HK" {
+		t.Fatalf("got %q want HK", got)
+	}
+}

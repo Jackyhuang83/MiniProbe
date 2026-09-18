@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.5-alpha`
+当前版本：`v0.4.6-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.5-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.6-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -263,12 +263,14 @@ Agent 当前采集：
 - uptime
 - OS / Kernel / Architecture / Virtualization
 - IPv4 / IPv6
+- V4 / V4 NAT / V6 网络类型，以及最佳努力的 `家宽 / 原生 / 广播` 属性标签（不在 Dashboard 暴露公网 IP）
 - 国内三网线路延迟 / 失败率（Server 全局选择北京、上海或广州）
 - 探测协议可选 ICMP / TCP / UDP
 - ICMP：Ping RTT + packet loss
 - TCP：TCP/53 connect RTT + connect failure rate
 - UDP：UDP/53 DNS query RTT + query failure rate
-- Dashboard 分开显示最近 20 次延迟历史与失败/丢包历史（Agent 内部保留小型历史窗口；探测约每 10 秒更新一次）
+- Dashboard 分开显示最近 20 次延迟历史与失败/丢包历史（探测约每 10 秒更新一次）
+- 右侧失败率 / 丢包率使用与这 20 个历史块一致的滚动窗口；每轮 4 次探测，因此完整窗口最多统计 80 次尝试
 
 Dashboard 节点卡片直接显示月流量，而不是拿“开机以来网卡总流量”冒充月流量。
 
@@ -287,6 +289,22 @@ SSH 执行 `miniprobe`，进入 `11. 国内线路测试` 后可全局选择：
 预设目标使用对应城市运营商 DNS 节点；TCP / UDP 使用 53 端口，ICMP 使用 Echo Request。不同协议的“失败率/丢包”语义不同，因此 Dashboard 同时保留协议标签，避免把 TCP/UDP 失败率误读成 ICMP packet loss。
 
 当前这组城市预设目标以 IPv4 为主；IPv6-only Agent 无 IPv4 出口时会把该线路测试显示为 N/A，不影响 CPU / 内存 / 磁盘 / 流量等其它监控。后续只有在找到稳定且城市/运营商归属明确的 IPv6 测试目标后才会加入，避免为了“支持”而混用不可靠节点。
+
+丢包 / 失败率的显示口径与右侧 20 个历史块一致，不再只显示“最后一轮 4 个包”的瞬时结果。窗口未填满时按已经实际执行的探测次数计算。ICMP 仍按每轮 4 个 Echo Request 统计；TCP / UDP 则对应 4 次连接 / DNS 查询尝试。
+
+## IP 网络属性标签
+
+Agent 会在启动后和每 24 小时做一次低频网络属性刷新：先分别发现 IPv4 / IPv6 公网出口，再使用公开 IP intelligence 与 RDAP 注册信息做最佳努力判断。Dashboard 只接收诸如 `V4 家宽`、`V4 广播`、`V6 原生` 这类标签，不显示查询到的公网 IP。
+
+判定原则：
+
+```text
+家宽 = 非数据中心 / 非代理类网络，并且 ISP/组织特征符合常见固定宽带运营商
+原生 = 地理国家/地区与 RDAP 注册国家/地区一致
+广播 = 地理国家/地区与 RDAP 注册国家/地区不一致
+```
+
+这是网络数据库的最佳努力分类，不是绝对证明。第三方数据缺失、接口不可达或证据不足时，MiniProbe 保留基础 `V4 / V4 NAT / V6` 标签，不强行猜测。属性查询失败不会影响 Agent 向 Server 上报 CPU、内存、流量或线路探测。
 
 ---
 
@@ -571,7 +589,7 @@ SHA256SUMS
 
 # 12. 当前版本说明
 
-`v0.4.5-alpha` 在 v0.4.4-alpha 的安全与 ICMP 修复基础上，重点优化节点信息展示和后续资料补充：
+`v0.4.6-alpha` 在 v0.4.5-alpha 基础上，重点修正线路丢包统计口径，并补充 IPv4 / IPv6 网络属性识别：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -589,10 +607,10 @@ Telegram 掉线 / 恢复 / 流量提醒
 Dashboard 不显示节点公网 IP
 节点名前按名称/标签识别常见国家或地区旗帜
 系统信息显示 Debian / Ubuntu / Alpine 等识别图标
-系统信息行增加 V4 / V4 NAT / V6 网络类型标签
+系统信息行显示 V4 / V4 NAT / V6，并可追加家宽 / 原生 / 广播属性标签
 月租 / 到期剩余时间进入节点卡片
 节点资料支持局部修改：回车保持原值，只保存实际填写项目
-线路质量拆成延迟历史 + 丢包/失败历史两组
+线路质量拆成延迟历史 + 丢包/失败历史两组；右侧百分比按同一 20 轮滚动窗口计算
 线路名包含城市（例如广州联通）
 线路协议可在 SSH 菜单全局选择 ICMP / TCP / UDP
 线路城市可在 SSH 菜单全局选择北京 / 上海 / 广州

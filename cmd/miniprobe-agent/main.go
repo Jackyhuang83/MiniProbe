@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,8 +29,10 @@ import (
 )
 
 const (
-	agentVersion  = "0.4.5-alpha"
-	probeInterval = 10 * time.Second
+	agentVersion       = "0.4.6-alpha"
+	probeInterval      = 10 * time.Second
+	probeHistoryWindow = 20
+	ipIntelRefresh     = 24 * time.Hour
 )
 
 type cfg struct {
@@ -54,6 +57,20 @@ type probeState struct {
 	hist     []int
 	latHist  []int
 	lossHist []int
+	lossSent []int
+	lossLost []int
+}
+
+type ipTraits struct {
+	GeoCountry   string
+	RegCountry   string
+	ISP          string
+	Org          string
+	IsMobile     bool
+	IsVPN        bool
+	IsTor        bool
+	IsProxy      bool
+	IsDatacenter bool
 }
 
 type probeTask struct {
@@ -136,6 +153,8 @@ func main() {
 	}
 
 	info := collectStatic()
+	var infoMu sync.RWMutex
+	go refreshIPNature(&infoMu, &info)
 	prevCPU := readCPU()
 	prevNet := readNet(c.Interface)
 	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true}}
@@ -178,10 +197,13 @@ func main() {
 		if !probeCfg.enabled {
 			probeProtocol = "off"
 		}
+		infoMu.RLock()
+		reportInfo := info
+		infoMu.RUnlock()
 		rep := common.Report{
 			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: endpoint, PolicyVersion: state.PolicyVersion,
 			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol,
-			Info: info, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
+			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
 		}
 		response, sendErr := send(client, endpoint, c.Token, rep)
 		if sendErr != nil {
@@ -559,6 +581,254 @@ func isCGNAT(ip net.IP) bool {
 	return v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
 }
 
+func refreshIPNature(mu *sync.RWMutex, info *common.StaticInfo) {
+	refresh := func() {
+		base := classifyNetworkTypes(ips(false), ips(true))
+		labels := enrichNetworkTypes(base)
+		mu.Lock()
+		info.NetworkTypes = labels
+		mu.Unlock()
+	}
+	refresh()
+	ticker := time.NewTicker(ipIntelRefresh)
+	defer ticker.Stop()
+	for range ticker.C {
+		refresh()
+	}
+}
+
+func enrichNetworkTypes(base []string) []string {
+	out := append([]string(nil), base...)
+	type result struct {
+		family int
+		nature string
+	}
+	ch := make(chan result, 2)
+	var wg sync.WaitGroup
+	for _, family := range []int{4, 6} {
+		if !hasNetworkFamily(base, family) {
+			continue
+		}
+		wg.Add(1)
+		go func(family int) {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+			defer cancel()
+			traits, err := lookupIPTraits(ctx, family)
+			if err != nil {
+				return
+			}
+			if nature := classifyIPNature(traits); nature != "" {
+				ch <- result{family: family, nature: nature}
+			}
+		}(family)
+	}
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+	for r := range ch {
+		for i, label := range out {
+			if (r.family == 4 && strings.HasPrefix(label, "V4")) || (r.family == 6 && strings.HasPrefix(label, "V6")) {
+				out[i] = label + " " + r.nature
+			}
+		}
+	}
+	return out
+}
+
+func hasNetworkFamily(labels []string, family int) bool {
+	prefix := "V4"
+	if family == 6 {
+		prefix = "V6"
+	}
+	for _, label := range labels {
+		if strings.HasPrefix(label, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func lookupIPTraits(ctx context.Context, family int) (ipTraits, error) {
+	ip, err := lookupPublicIP(ctx, family)
+	if err != nil {
+		return ipTraits{}, err
+	}
+	traits, err := queryIPIntelligence(ctx, ip)
+	if err != nil {
+		return ipTraits{}, err
+	}
+	if country, err := queryRDAPCountry(ctx, ip); err == nil {
+		traits.RegCountry = country
+	}
+	return traits, nil
+}
+
+func lookupPublicIP(ctx context.Context, family int) (net.IP, error) {
+	endpoint := "https://api-ipv4.ip.sb/ip"
+	if family == 6 {
+		endpoint = "https://api-ipv6.ip.sb/ip"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("public IP lookup HTTP %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 128))
+	if err != nil {
+		return nil, err
+	}
+	ip := net.ParseIP(strings.TrimSpace(string(b)))
+	if ip == nil || (family == 4 && ip.To4() == nil) || (family == 6 && ip.To4() != nil) {
+		return nil, errors.New("public IP lookup returned wrong address family")
+	}
+	return ip, nil
+}
+
+func queryIPIntelligence(ctx context.Context, ip net.IP) (ipTraits, error) {
+	u := "https://api.ipquery.io/" + url.PathEscape(ip.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return ipTraits{}, err
+	}
+	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ipTraits{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return ipTraits{}, fmt.Errorf("IP intelligence HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		ISP struct {
+			Org string `json:"org"`
+			ISP string `json:"isp"`
+		} `json:"isp"`
+		Location struct {
+			CountryCode string `json:"country_code"`
+		} `json:"location"`
+		Risk struct {
+			IsMobile     bool `json:"is_mobile"`
+			IsVPN        bool `json:"is_vpn"`
+			IsTor        bool `json:"is_tor"`
+			IsProxy      bool `json:"is_proxy"`
+			IsDatacenter bool `json:"is_datacenter"`
+		} `json:"risk"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
+		return ipTraits{}, err
+	}
+	return ipTraits{
+		GeoCountry: normalizeCountryCode(body.Location.CountryCode),
+		ISP:        body.ISP.ISP, Org: body.ISP.Org,
+		IsMobile: body.Risk.IsMobile, IsVPN: body.Risk.IsVPN, IsTor: body.Risk.IsTor,
+		IsProxy: body.Risk.IsProxy, IsDatacenter: body.Risk.IsDatacenter,
+	}, nil
+}
+
+func queryRDAPCountry(ctx context.Context, ip net.IP) (string, error) {
+	u := "https://rdap.org/ip/" + url.PathEscape(ip.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/rdap+json, application/json")
+	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("RDAP HTTP %d", resp.StatusCode)
+	}
+	var raw any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 512<<10)).Decode(&raw); err != nil {
+		return "", err
+	}
+	if country := findRDAPCountry(raw); country != "" {
+		return country, nil
+	}
+	return "", errors.New("RDAP country unavailable")
+}
+
+func findRDAPCountry(v any) string {
+	switch x := v.(type) {
+	case map[string]any:
+		if raw, ok := x["country"].(string); ok {
+			if cc := normalizeCountryCode(raw); cc != "" {
+				return cc
+			}
+		}
+		for _, child := range x {
+			if cc := findRDAPCountry(child); cc != "" {
+				return cc
+			}
+		}
+	case []any:
+		for _, child := range x {
+			if cc := findRDAPCountry(child); cc != "" {
+				return cc
+			}
+		}
+	}
+	return ""
+}
+
+func normalizeCountryCode(v string) string {
+	v = strings.ToUpper(strings.TrimSpace(v))
+	if len(v) != 2 || v[0] < 'A' || v[0] > 'Z' || v[1] < 'A' || v[1] > 'Z' {
+		return ""
+	}
+	return v
+}
+
+func classifyIPNature(t ipTraits) string {
+	if isLikelyResidential(t) {
+		return "家宽"
+	}
+	if t.GeoCountry != "" && t.RegCountry != "" {
+		if t.GeoCountry == t.RegCountry {
+			return "原生"
+		}
+		return "广播"
+	}
+	return ""
+}
+
+func isLikelyResidential(t ipTraits) bool {
+	if t.IsDatacenter || t.IsMobile || t.IsVPN || t.IsTor || t.IsProxy {
+		return false
+	}
+	s := strings.ToLower(strings.TrimSpace(t.ISP + " " + t.Org))
+	if s == "" {
+		return false
+	}
+	keywords := []string{
+		"broadband", "fiber", "fibre", "cable", "residential", "consumer",
+		"telecom", "telekom", "unicom", "comcast", "charter", "spectrum", "cox",
+		"verizon", "at&t", "kddi", "softbank", "ntt", "proxad", "free sas", "orange",
+		"vodafone", "telefonica", "telstra", "optus", "rogers", "bell canada", "telus",
+		"singtel", "starhub", "hinet", "chunghwa", "sk broadband", "jcom", "biglobe", "so-net",
+	}
+	for _, keyword := range keywords {
+		if strings.Contains(s, keyword) {
+			return true
+		}
+	}
+	return false
+}
+
 func collectMetrics(a, b cpuSample, n1, n2 netSample) common.Metrics {
 	mt, mu, st, su := readMem()
 	_ = mt
@@ -818,20 +1088,20 @@ func probeTarget(protocol, name, target string) common.ProbeResult {
 		}
 	}
 
-	loss := float64(attempts-ok) * 100 / attempts
+	batchLoss := float64(attempts-ok) * 100 / attempts
 	lat := -1.0
 	if ok > 0 {
 		lat = sum / float64(ok)
 	}
 	latState := latencyQuality(lat)
-	lossState := lossQuality(loss)
+	batchLossState := lossQuality(batchLoss)
 	quality := latState
-	if lossState > quality {
-		quality = lossState
+	if batchLossState > quality {
+		quality = batchLossState
 	}
 	key := protocol + "|" + name
-	hist, latHist, lossHist := appendHistories(key, quality, latState, lossState)
-	return common.ProbeResult{Name: name, Target: target, Available: true, LatencyMS: lat, LossPct: loss, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
+	hist, latHist, lossHist, rollingLoss := appendHistories(key, quality, latState, batchLossState, attempts, attempts-ok)
+	return common.ProbeResult{Name: name, Target: target, Available: true, LatencyMS: lat, LossPct: rollingLoss, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
 }
 
 func latencyQuality(lat float64) int {
@@ -1045,7 +1315,7 @@ func localFamilies() (bool, bool) {
 	return has4, has6
 }
 
-func appendHistories(name string, quality, latency, loss int) ([]int, []int, []int) {
+func appendHistories(name string, quality, latency, loss, sent, lost int) ([]int, []int, []int, float64) {
 	x, _ := probeStates.LoadOrStore(name, &probeState{})
 	ps := x.(*probeState)
 	ps.mu.Lock()
@@ -1053,16 +1323,31 @@ func appendHistories(name string, quality, latency, loss int) ([]int, []int, []i
 	ps.hist = append(ps.hist, quality)
 	ps.latHist = append(ps.latHist, latency)
 	ps.lossHist = append(ps.lossHist, loss)
-	if len(ps.hist) > 30 {
-		ps.hist = ps.hist[len(ps.hist)-30:]
+	ps.lossSent = append(ps.lossSent, sent)
+	ps.lossLost = append(ps.lossLost, lost)
+	if len(ps.hist) > probeHistoryWindow {
+		ps.hist = ps.hist[len(ps.hist)-probeHistoryWindow:]
 	}
-	if len(ps.latHist) > 30 {
-		ps.latHist = ps.latHist[len(ps.latHist)-30:]
+	if len(ps.latHist) > probeHistoryWindow {
+		ps.latHist = ps.latHist[len(ps.latHist)-probeHistoryWindow:]
 	}
-	if len(ps.lossHist) > 30 {
-		ps.lossHist = ps.lossHist[len(ps.lossHist)-30:]
+	if len(ps.lossHist) > probeHistoryWindow {
+		ps.lossHist = ps.lossHist[len(ps.lossHist)-probeHistoryWindow:]
 	}
-	return append([]int(nil), ps.hist...), append([]int(nil), ps.latHist...), append([]int(nil), ps.lossHist...)
+	if len(ps.lossSent) > probeHistoryWindow {
+		ps.lossSent = ps.lossSent[len(ps.lossSent)-probeHistoryWindow:]
+		ps.lossLost = ps.lossLost[len(ps.lossLost)-probeHistoryWindow:]
+	}
+	totalSent, totalLost := 0, 0
+	for i := range ps.lossSent {
+		totalSent += ps.lossSent[i]
+		totalLost += ps.lossLost[i]
+	}
+	rollingLoss := 0.0
+	if totalSent > 0 {
+		rollingLoss = float64(totalLost) * 100 / float64(totalSent)
+	}
+	return append([]int(nil), ps.hist...), append([]int(nil), ps.latHist...), append([]int(nil), ps.lossHist...), rollingLoss
 }
 
 func readOS() string {

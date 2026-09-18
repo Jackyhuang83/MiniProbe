@@ -40,8 +40,11 @@ function osMark(os){
   return `<span class="os-logo fallback">L</span>`;
 }
 function networkBadges(types){
-  const allowed=new Set(['V4','V4 NAT','V6']);
-  return (types||[]).filter(x=>allowed.has(String(x))).map(x=>`<span class="net-badge ${String(x).includes('NAT')?'nat':''}">${esc(x)}</span>`).join('');
+  const valid=/^V(?:4(?: NAT)?|6)(?: (?:家宽|原生|广播))?$/;
+  return (types||[]).map(x=>String(x)).filter(x=>valid.test(x)).map(x=>{
+    const cls=[x.includes('NAT')?'nat':'',x.includes('家宽')?'home':'',x.includes('广播')?'broadcast':'',x.includes('原生')?'native':''].filter(Boolean).join(' ');
+    return `<span class="net-badge ${cls}">${esc(x)}</span>`;
+  }).join('');
 }
 
 function priceText(n){
