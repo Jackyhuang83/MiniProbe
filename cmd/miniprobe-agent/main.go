@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion       = "0.4.6-alpha"
+	agentVersion       = "0.4.7-alpha"
 	probeInterval      = 10 * time.Second
 	probeHistoryWindow = 20
 	ipIntelRefresh     = 24 * time.Hour
@@ -62,15 +62,16 @@ type probeState struct {
 }
 
 type ipTraits struct {
-	GeoCountry   string
-	RegCountry   string
-	ISP          string
-	Org          string
-	IsMobile     bool
-	IsVPN        bool
-	IsTor        bool
-	IsProxy      bool
-	IsDatacenter bool
+	GeoCountry    string
+	GeoCountryAlt string
+	RegCountry    string
+	ISP           string
+	Org           string
+	IsMobile      bool
+	IsVPN         bool
+	IsTor         bool
+	IsProxy       bool
+	IsDatacenter  bool
 }
 
 type probeTask struct {
@@ -612,7 +613,7 @@ func enrichNetworkTypes(base []string) []string {
 		wg.Add(1)
 		go func(family int) {
 			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
 			traits, err := lookupIPTraits(ctx, family)
 			if err != nil {
@@ -658,6 +659,13 @@ func lookupIPTraits(ctx context.Context, family int) (ipTraits, error) {
 	traits, err := queryIPIntelligence(ctx, ip)
 	if err != nil {
 		return ipTraits{}, err
+	}
+	// Regional classification is intentionally conservative. A single GeoIP
+	// database is not enough evidence for the VPS-community "原生/广播" label,
+	// so require a second independent GeoIP country to agree before comparing
+	// against the RIR network object's own RDAP country.
+	if country, err := querySecondaryGeoCountry(ctx, ip); err == nil {
+		traits.GeoCountryAlt = country
 	}
 	if country, err := queryRDAPCountry(ctx, ip); err == nil {
 		traits.RegCountry = country
@@ -736,6 +744,33 @@ func queryIPIntelligence(ctx context.Context, ip net.IP) (ipTraits, error) {
 	}, nil
 }
 
+func querySecondaryGeoCountry(ctx context.Context, ip net.IP) (string, error) {
+	u := "https://api.ip.sb/geoip/" + url.PathEscape(ip.String())
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("secondary GeoIP HTTP %d", resp.StatusCode)
+	}
+	var body struct {
+		CountryCode string `json:"country_code"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
+		return "", err
+	}
+	if cc := normalizeCountryCode(body.CountryCode); cc != "" {
+		return cc, nil
+	}
+	return "", errors.New("secondary GeoIP country unavailable")
+}
+
 func queryRDAPCountry(ctx context.Context, ip net.IP) (string, error) {
 	u := "https://rdap.org/ip/" + url.PathEscape(ip.String())
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
@@ -756,33 +791,29 @@ func queryRDAPCountry(ctx context.Context, ip net.IP) (string, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 512<<10)).Decode(&raw); err != nil {
 		return "", err
 	}
+	// RFC 9083 defines country on the top-level IP network object. Do not walk
+	// into nested registrant/contact entities: their country describes a person
+	// or organization and was the source of false "原生/广播" decisions in
+	// v0.4.6-alpha.
 	if country := findRDAPCountry(raw); country != "" {
 		return country, nil
 	}
-	return "", errors.New("RDAP country unavailable")
+	return "", errors.New("RDAP network country unavailable")
 }
 
 func findRDAPCountry(v any) string {
-	switch x := v.(type) {
-	case map[string]any:
-		if raw, ok := x["country"].(string); ok {
-			if cc := normalizeCountryCode(raw); cc != "" {
-				return cc
-			}
-		}
-		for _, child := range x {
-			if cc := findRDAPCountry(child); cc != "" {
-				return cc
-			}
-		}
-	case []any:
-		for _, child := range x {
-			if cc := findRDAPCountry(child); cc != "" {
-				return cc
-			}
-		}
+	x, ok := v.(map[string]any)
+	if !ok {
+		return ""
 	}
-	return ""
+	if cls, _ := x["objectClassName"].(string); cls != "" && cls != "ip network" {
+		return ""
+	}
+	raw, ok := x["country"].(string)
+	if !ok {
+		return ""
+	}
+	return normalizeCountryCode(raw)
 }
 
 func normalizeCountryCode(v string) string {
@@ -794,16 +825,39 @@ func normalizeCountryCode(v string) string {
 }
 
 func classifyIPNature(t ipTraits) string {
-	if isLikelyResidential(t) {
-		return "家宽"
+	parts := make([]string, 0, 2)
+
+	// Network nature and regional nature are independent dimensions. Prefer
+	// explicit intelligence flags over organization-name guessing.
+	switch {
+	case t.IsDatacenter:
+		parts = append(parts, "IDC")
+	case t.IsMobile:
+		parts = append(parts, "移动")
+	case isLikelyResidential(t):
+		parts = append(parts, "家宽")
 	}
-	if t.GeoCountry != "" && t.RegCountry != "" {
-		if t.GeoCountry == t.RegCountry {
-			return "原生"
-		}
-		return "广播"
+
+	if regional := classifyRegionalNature(t); regional != "" {
+		parts = append(parts, regional)
 	}
-	return ""
+	return strings.Join(parts, "·")
+}
+
+func classifyRegionalNature(t ipTraits) string {
+	// Require two independent GeoIP country results to agree. If they disagree,
+	// or the RIR network record lacks a country, leave the label unknown instead
+	// of guessing.
+	if t.GeoCountry == "" || t.GeoCountryAlt == "" || t.RegCountry == "" {
+		return ""
+	}
+	if t.GeoCountry != t.GeoCountryAlt {
+		return ""
+	}
+	if t.GeoCountry == t.RegCountry {
+		return "原生"
+	}
+	return "广播"
 }
 
 func isLikelyResidential(t ipTraits) bool {
@@ -814,12 +868,13 @@ func isLikelyResidential(t ipTraits) bool {
 	if s == "" {
 		return false
 	}
+	// Deliberately avoid generic carrier/company names such as "telecom",
+	// "unicom", "NTT", "KDDI" or "SoftBank": the same organizations also own
+	// transit and datacenter ranges. Only access-network wording is accepted.
 	keywords := []string{
-		"broadband", "fiber", "fibre", "cable", "residential", "consumer",
-		"telecom", "telekom", "unicom", "comcast", "charter", "spectrum", "cox",
-		"verizon", "at&t", "kddi", "softbank", "ntt", "proxad", "free sas", "orange",
-		"vodafone", "telefonica", "telstra", "optus", "rogers", "bell canada", "telus",
-		"singtel", "starhub", "hinet", "chunghwa", "sk broadband", "jcom", "biglobe", "so-net",
+		"residential", "broadband", "fiber", "fibre", "cable",
+		"ftth", "adsl", "vdsl", "fixed broadband", "fixed-line", "fixed line",
+		"home internet", "home broadband",
 	}
 	for _, keyword := range keywords {
 		if strings.Contains(s, keyword) {

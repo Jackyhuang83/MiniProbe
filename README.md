@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.6-alpha`
+当前版本：`v0.4.7-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.6-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.7-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -589,7 +589,7 @@ SHA256SUMS
 
 # 12. 当前版本说明
 
-`v0.4.6-alpha` 在 v0.4.5-alpha 基础上，重点修正线路丢包统计口径，并补充 IPv4 / IPv6 网络属性识别：
+`v0.4.7-alpha` 在 v0.4.6-alpha 基础上，收紧 IP 属性识别并补充长期续费节点的到期显示：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -607,8 +607,10 @@ Telegram 掉线 / 恢复 / 流量提醒
 Dashboard 不显示节点公网 IP
 节点名前按名称/标签识别常见国家或地区旗帜
 系统信息显示 Debian / Ubuntu / Alpine 等识别图标
-系统信息行显示 V4 / V4 NAT / V6，并可追加家宽 / 原生 / 广播属性标签
-月租 / 到期剩余时间进入节点卡片
+系统信息行显示 V4 / V4 NAT / V6，并采用保守证据追加 家宽 / IDC / 移动 与 原生 / 广播属性
+原生 / 广播要求两个独立 GeoIP 国家结果一致，再与 RDAP 顶层 IP network country 比较；证据不足就不显示
+家宽不再按 Telecom / Unicom / NTT / KDDI / SoftBank 等运营商名称猜测，只接受明确接入网特征
+月租 / 到期剩余时间进入节点卡片；到期日输入 L/长期可标记为长期续费，Dashboard 显示“长期”
 节点资料支持局部修改：回车保持原值，只保存实际填写项目
 线路质量拆成延迟历史 + 丢包/失败历史两组；右侧百分比按同一 20 轮滚动窗口计算
 线路名包含城市（例如广州联通）
@@ -620,5 +622,19 @@ Dashboard 正确登录后信任当前设备 30 天
 Direct HTTP 明确标注为未加密，Dashboard 显示安全警告
 Server 安装器升级时会显式重启正在运行的 systemd 服务
 ```
+
+长期续费节点在 SSH 菜单添加/修改到期日时，可直接输入：
+
+```text
+L
+```
+
+或：
+
+```text
+长期
+```
+
+MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `长期`，而不是显示一个很大的“剩余天数”。普通节点仍使用 `YYYY-MM-DD`。
 
 目前不追求商用规模，也不加入远程服务器管理功能。

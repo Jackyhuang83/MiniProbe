@@ -40,9 +40,9 @@ function osMark(os){
   return `<span class="os-logo fallback">L</span>`;
 }
 function networkBadges(types){
-  const valid=/^V(?:4(?: NAT)?|6)(?: (?:家宽|原生|广播))?$/;
+  const valid=/^V(?:4(?: NAT)?|6)(?: (?:(?:家宽|IDC|移动)(?:·(?:原生|广播))?|(?:原生|广播)))?$/;
   return (types||[]).map(x=>String(x)).filter(x=>valid.test(x)).map(x=>{
-    const cls=[x.includes('NAT')?'nat':'',x.includes('家宽')?'home':'',x.includes('广播')?'broadcast':'',x.includes('原生')?'native':''].filter(Boolean).join(' ');
+    const cls=[x.includes('NAT')?'nat':'',x.includes('家宽')?'home':'',x.includes('IDC')?'idc':'',x.includes('移动')?'mobile':'',x.includes('广播')?'broadcast':'',x.includes('原生')?'native':''].filter(Boolean).join(' ');
     return `<span class="net-badge ${cls}">${esc(x)}</span>`;
   }).join('');
 }
@@ -56,7 +56,9 @@ function priceText(n){
 }
 function expiryInfo(v){
   if(!v) return {text:'',days:null};
-  const d=new Date(v); if(Number.isNaN(d.getTime())) return {text:'',days:null};
+  const s=String(v).trim();
+  if(s==='2036-01-01'||s.toLowerCase()==='longterm') return {text:'长期',days:null};
+  const d=new Date(s); if(Number.isNaN(d.getTime())) return {text:'',days:null};
   const days=Math.ceil((d.getTime()-Date.now())/86400000);
   if(days<0) return {text:`已到期 ${Math.abs(days)} 天`,days};
   if(days===0) return {text:'今天到期',days};

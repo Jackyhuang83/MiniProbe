@@ -194,11 +194,13 @@ func TestClassifyIPNature(t *testing.T) {
 		in   ipTraits
 		want string
 	}{
-		{name: "residential", in: ipTraits{GeoCountry: "US", RegCountry: "US", ISP: "Comcast Cable", Org: "Comcast", IsDatacenter: false}, want: "家宽"},
-		{name: "native datacenter", in: ipTraits{GeoCountry: "HK", RegCountry: "HK", ISP: "Example Hosting", IsDatacenter: true}, want: "原生"},
-		{name: "broadcast datacenter", in: ipTraits{GeoCountry: "HK", RegCountry: "US", ISP: "Example Hosting", IsDatacenter: true}, want: "广播"},
-		{name: "do not call mobile home broadband", in: ipTraits{GeoCountry: "JP", RegCountry: "JP", ISP: "NTT Mobile", IsMobile: true}, want: "原生"},
-		{name: "unknown registration", in: ipTraits{GeoCountry: "SG", ISP: "Unknown Network"}, want: ""},
+		{name: "residential native", in: ipTraits{GeoCountry: "US", GeoCountryAlt: "US", RegCountry: "US", ISP: "Comcast Cable", Org: "Comcast"}, want: "家宽·原生"},
+		{name: "native datacenter", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "HK", RegCountry: "HK", ISP: "Example Hosting", IsDatacenter: true}, want: "IDC·原生"},
+		{name: "broadcast datacenter", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "HK", RegCountry: "US", ISP: "Example Hosting", IsDatacenter: true}, want: "IDC·广播"},
+		{name: "mobile native", in: ipTraits{GeoCountry: "JP", GeoCountryAlt: "JP", RegCountry: "JP", ISP: "NTT Mobile", IsMobile: true}, want: "移动·原生"},
+		{name: "generic telecom is not residential", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "HK", RegCountry: "HK", ISP: "Example Telecom"}, want: "原生"},
+		{name: "geo providers disagree", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "SG", RegCountry: "HK", IsDatacenter: true}, want: "IDC"},
+		{name: "unknown registration", in: ipTraits{GeoCountry: "SG", GeoCountryAlt: "SG", ISP: "Unknown Network"}, want: ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -209,14 +211,25 @@ func TestClassifyIPNature(t *testing.T) {
 	}
 }
 
-func TestFindRDAPCountry(t *testing.T) {
+func TestFindRDAPCountryUsesTopLevelNetworkOnly(t *testing.T) {
 	raw := map[string]any{
+		"objectClassName": "ip network",
+		"country":         "hk",
+		"entities": []any{
+			map[string]any{"handle": "x", "country": "us"},
+		},
+	}
+	if got := findRDAPCountry(raw); got != "HK" {
+		t.Fatalf("got %q want HK", got)
+	}
+
+	nestedOnly := map[string]any{
 		"objectClassName": "ip network",
 		"entities": []any{
 			map[string]any{"handle": "x", "country": "hk"},
 		},
 	}
-	if got := findRDAPCountry(raw); got != "HK" {
-		t.Fatalf("got %q want HK", got)
+	if got := findRDAPCountry(nestedOnly); got != "" {
+		t.Fatalf("nested entity country must be ignored, got %q", got)
 	}
 }

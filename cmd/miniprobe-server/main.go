@@ -50,6 +50,7 @@ const (
 	storageHardLimit    = uint64(2 * 1024 * 1024 * 1024)
 	dataFileMaxBytes    = 256 * 1024 * 1024
 	dashboardSessionTTL = 30 * 24 * time.Hour
+	longTermExpireDate  = "2036-01-01"
 )
 
 const (
@@ -1264,11 +1265,41 @@ func validateNodeInput(id, displayName string, trafficGB float64, direction stri
 	if len(currency) > 8 {
 		return nodeConfig{}, errors.New("invalid currency")
 	}
+	expire, err := normalizeExpireInput(expire)
+	if err != nil {
+		return nodeConfig{}, err
+	}
 	return nodeConfig{
 		ID: id, DisplayName: name, MonthlyTrafficLimit: gbToBytes(trafficGB), TrafficDirection: direction,
 		TrafficResetDay: resetDay, TrafficResetTZMinutes: resetTZ, ShutdownEnabled: shutdownEnabled, ShutdownPercent: shutdownPercent,
-		MonthlyPrice: monthlyPrice, Currency: currency, ExpireAt: strings.TrimSpace(expire), Tags: cleanTags(tags),
+		MonthlyPrice: monthlyPrice, Currency: currency, ExpireAt: expire, Tags: cleanTags(tags),
 	}, nil
+}
+
+func normalizeExpireInput(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", nil
+	}
+	switch strings.ToLower(v) {
+	case "l", "long", "long-term", "longterm":
+		return longTermExpireDate, nil
+	}
+	if v == "长期" {
+		return longTermExpireDate, nil
+	}
+	if _, err := time.Parse("2006-01-02", v); err != nil {
+		return "", errors.New("到期日格式必须为 YYYY-MM-DD，或输入 L/长期")
+	}
+	return v, nil
+}
+
+func expireDisplay(v string) string {
+	v = strings.TrimSpace(v)
+	if v == longTermExpireDate {
+		return "长期"
+	}
+	return v
 }
 
 func (s *server) localNodeCommand(w http.ResponseWriter, r *http.Request) {
@@ -2119,9 +2150,10 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	if currency == "" {
 		currency = curCurrency
 	}
-	expPrompt := "到期日 YYYY-MM-DD [可选]: "
+	expPrompt := "到期日 YYYY-MM-DD [可选，L=长期]: "
 	if current != nil {
-		expPrompt = fmt.Sprintf("到期日 [%s]: ", curExpire)
+		curExpireDisplay := expireDisplay(curExpire)
+		expPrompt = fmt.Sprintf("到期日 [%s]（L=长期）: ", curExpireDisplay)
 	}
 	expire := prompt(r, expPrompt)
 	if expire == "" {
@@ -2256,11 +2288,11 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 	if v := prompt(r, fmt.Sprintf("币种 [%s]: ", n.Currency)); v != "" {
 		body["currency"] = v
 	}
-	expireCurrent := n.ExpireAt
+	expireCurrent := expireDisplay(n.ExpireAt)
 	if expireCurrent == "" {
 		expireCurrent = "未设置"
 	}
-	if v := prompt(r, fmt.Sprintf("到期日 [%s]（YYYY-MM-DD，- 清除）: ", expireCurrent)); v != "" {
+	if v := prompt(r, fmt.Sprintf("到期日 [%s]（YYYY-MM-DD，L=长期，- 清除）: ", expireCurrent)); v != "" {
 		if v == "-" {
 			body["expire_at"] = ""
 		} else {

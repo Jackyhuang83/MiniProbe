@@ -108,3 +108,24 @@ func TestMergeNodeUpdateCanClearOptionalField(t *testing.T) {
 		t.Fatalf("optional fields not cleared: %+v", got)
 	}
 }
+
+func TestLongTermExpiryAlias(t *testing.T) {
+	for _, in := range []string{"L", "long", "longterm", "长期", "2036-01-01"} {
+		got, err := normalizeExpireInput(in)
+		if err != nil {
+			t.Fatalf("%q: %v", in, err)
+		}
+		if got != longTermExpireDate {
+			t.Fatalf("%q => %q want %q", in, got, longTermExpireDate)
+		}
+	}
+	if got := expireDisplay(longTermExpireDate); got != "长期" {
+		t.Fatalf("long-term display got %q", got)
+	}
+}
+
+func TestExpiryValidationRejectsInvalidDate(t *testing.T) {
+	if _, err := normalizeExpireInput("2036-02-30"); err == nil {
+		t.Fatal("invalid calendar date should be rejected")
+	}
+}
