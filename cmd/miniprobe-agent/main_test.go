@@ -134,3 +134,31 @@ func TestICMPProbeIDsAndReplySourceIsolation(t *testing.T) {
 		t.Fatal("reply from another carrier target must be rejected")
 	}
 }
+
+func TestClassifyNetworkTypes(t *testing.T) {
+	cases := []struct {
+		name string
+		v4   []string
+		v6   []string
+		want []string
+	}{
+		{name: "public v4", v4: []string{"203.0.113.9"}, want: []string{"V4"}},
+		{name: "nat v4", v4: []string{"10.0.0.2", "100.64.0.9"}, want: []string{"V4 NAT"}},
+		{name: "public v6", v6: []string{"2001:db8::9"}, want: []string{"V6"}},
+		{name: "nat v4 plus v6", v4: []string{"192.168.1.2"}, v6: []string{"2606:4700::1111"}, want: []string{"V4 NAT", "V6"}},
+		{name: "ignore link local", v4: []string{"169.254.10.2"}, v6: []string{"fe80::1"}, want: nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := classifyNetworkTypes(tc.v4, tc.v6)
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("got %v want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}

@@ -39,6 +39,10 @@ function osMark(os){
   if(os.src) return `<img class="os-logo" src="${os.src}" alt="">`;
   return `<span class="os-logo fallback">L</span>`;
 }
+function networkBadges(types){
+  const allowed=new Set(['V4','V4 NAT','V6']);
+  return (types||[]).filter(x=>allowed.has(String(x))).map(x=>`<span class="net-badge ${String(x).includes('NAT')?'nat':''}">${esc(x)}</span>`).join('');
+}
 
 function priceText(n){
   const v=Number(n.monthly_price||0); if(!(v>0)) return '';
@@ -170,7 +174,7 @@ function card(n){
     </div>
     <div class="chips">
       <span class="chip">${n.online?`在线 ${uptime(m.uptime_seconds)}`:'等待恢复'}</span>
-      <span class="chip ghost os-chip">${osMark(os)}<span>${esc(os.label)}${i.virtualization?` · ${esc(String(i.virtualization).toUpperCase())}`:''}${i.arch?` · ${esc(i.arch)}`:''}</span></span>
+      <span class="chip ghost os-chip">${osMark(os)}<span class="os-text">${esc(os.label)}${i.virtualization?` · ${esc(String(i.virtualization).toUpperCase())}`:''}${i.arch?` · ${esc(i.arch)}`:''}</span>${networkBadges(i.network_types)}</span>
     </div>
 
     <div class="metrics-grid">

@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	agentVersion  = "0.4.4-alpha"
+	agentVersion  = "0.4.5-alpha"
 	probeInterval = 10 * time.Second
 )
 
@@ -509,7 +509,54 @@ func collectStatic() common.StaticInfo {
 	kernel := strings.TrimSpace(string(kernelBytes))
 	memTotal, _, swapTotal, _ := readMem()
 	dt, _ := diskUsage("/")
-	return common.StaticInfo{Hostname: h, OS: readOS(), Kernel: kernel, Arch: runtime.GOARCH, Virtualization: detectVirt(), CPUModel: cpuModel(), CPUCores: runtime.NumCPU(), IPv4: ips(false), IPv6: ips(true), MemTotal: memTotal, SwapTotal: swapTotal, DiskTotal: dt}
+	v4 := ips(false)
+	v6 := ips(true)
+	return common.StaticInfo{Hostname: h, OS: readOS(), Kernel: kernel, Arch: runtime.GOARCH, Virtualization: detectVirt(), CPUModel: cpuModel(), CPUCores: runtime.NumCPU(), IPv4: v4, IPv6: v6, NetworkTypes: classifyNetworkTypes(v4, v6), MemTotal: memTotal, SwapTotal: swapTotal, DiskTotal: dt}
+}
+
+func classifyNetworkTypes(v4s, v6s []string) []string {
+	hasPublicV4 := false
+	hasNATV4 := false
+	hasPublicV6 := false
+	for _, raw := range v4s {
+		ip := net.ParseIP(strings.TrimSpace(raw))
+		if ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		ip = ip.To4()
+		if ip.IsPrivate() || isCGNAT(ip) {
+			hasNATV4 = true
+			continue
+		}
+		if ip.IsGlobalUnicast() {
+			hasPublicV4 = true
+		}
+	}
+	for _, raw := range v6s {
+		ip := net.ParseIP(strings.TrimSpace(raw))
+		if ip == nil || ip.To4() != nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		hasPublicV6 = true
+	}
+	out := make([]string, 0, 2)
+	if hasPublicV4 {
+		out = append(out, "V4")
+	} else if hasNATV4 {
+		out = append(out, "V4 NAT")
+	}
+	if hasPublicV6 {
+		out = append(out, "V6")
+	}
+	return out
+}
+
+func isCGNAT(ip net.IP) bool {
+	v4 := ip.To4()
+	if v4 == nil {
+		return false
+	}
+	return v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
 }
 
 func collectMetrics(a, b cpuSample, n1, n2 netSample) common.Metrics {

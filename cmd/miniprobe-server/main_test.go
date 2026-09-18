@@ -72,3 +72,39 @@ func TestForwardedHTTPSOnlyTrustedFromLoopback(t *testing.T) {
 		t.Fatal("local cloudflared-style HTTPS forwarding should be trusted")
 	}
 }
+
+func TestMergeNodeUpdateKeepsUnspecifiedFields(t *testing.T) {
+	old := nodeConfig{
+		ID: "node-1", DisplayName: "HK-YECAOYUN-IPV4", TokenNonce: "nonce",
+		MonthlyTrafficLimit: 100_000_000_000, TrafficDirection: "outbound", TrafficResetDay: 20, TrafficResetTZMinutes: 480,
+		ShutdownEnabled: true, ShutdownPercent: 95, MonthlyPrice: 5.5, Currency: "USD", ExpireAt: "2027-09-18",
+		Tags: []string{"HK", "main"}, CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	traffic := 200.0
+	got, err := mergeNodeUpdate(old, nodeUpdateInput{ID: old.ID, TrafficGB: &traffic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MonthlyTrafficLimit != 200_000_000_000 {
+		t.Fatalf("traffic not updated: %d", got.MonthlyTrafficLimit)
+	}
+	if got.DisplayName != old.DisplayName || got.TrafficDirection != old.TrafficDirection || got.TrafficResetDay != old.TrafficResetDay || got.TrafficResetTZMinutes != old.TrafficResetTZMinutes || got.ShutdownEnabled != old.ShutdownEnabled || got.ShutdownPercent != old.ShutdownPercent || got.MonthlyPrice != old.MonthlyPrice || got.Currency != old.Currency || got.ExpireAt != old.ExpireAt || got.TokenNonce != old.TokenNonce || !got.CreatedAt.Equal(old.CreatedAt) {
+		t.Fatalf("unspecified fields changed: old=%+v got=%+v", old, got)
+	}
+	if len(got.Tags) != len(old.Tags) || got.Tags[0] != old.Tags[0] || got.Tags[1] != old.Tags[1] {
+		t.Fatalf("tags changed unexpectedly: %v", got.Tags)
+	}
+}
+
+func TestMergeNodeUpdateCanClearOptionalField(t *testing.T) {
+	old := nodeConfig{ID: "node-1", DisplayName: "n1", TrafficDirection: "total", TrafficResetDay: 1, ShutdownPercent: 95, MonthlyPrice: 5, Currency: "USD", ExpireAt: "2027-01-01"}
+	empty := ""
+	zero := 0.0
+	got, err := mergeNodeUpdate(old, nodeUpdateInput{ID: old.ID, MonthlyPrice: &zero, ExpireAt: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MonthlyPrice != 0 || got.ExpireAt != "" {
+		t.Fatalf("optional fields not cleared: %+v", got)
+	}
+}

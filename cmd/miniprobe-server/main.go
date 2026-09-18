@@ -162,6 +162,21 @@ type nodeConfig struct {
 	CreatedAt             time.Time `json:"created_at"`
 }
 
+type nodeUpdateInput struct {
+	ID                    string    `json:"id"`
+	DisplayName           *string   `json:"display_name,omitempty"`
+	TrafficGB             *float64  `json:"traffic_gb,omitempty"`
+	TrafficDirection      *string   `json:"traffic_direction,omitempty"`
+	TrafficResetDay       *int      `json:"traffic_reset_day,omitempty"`
+	TrafficResetTZMinutes *int      `json:"traffic_reset_tz_minutes,omitempty"`
+	ShutdownEnabled       *bool     `json:"shutdown_enabled,omitempty"`
+	ShutdownPercent       *int      `json:"shutdown_percent,omitempty"`
+	MonthlyPrice          *float64  `json:"monthly_price,omitempty"`
+	Currency              *string   `json:"currency,omitempty"`
+	ExpireAt              *string   `json:"expire_at,omitempty"`
+	Tags                  *[]string `json:"tags,omitempty"`
+}
+
 type notificationState struct {
 	OfflineAlerted  bool      `json:"offline_alerted,omitempty"`
 	OfflineSince    time.Time `json:"offline_since,omitempty"`
@@ -1099,31 +1114,13 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusCreated, resp)
 
 	case http.MethodPut:
-		var in struct {
-			ID                    string   `json:"id"`
-			DisplayName           string   `json:"display_name"`
-			TrafficGB             float64  `json:"traffic_gb"`
-			TrafficDirection      string   `json:"traffic_direction"`
-			TrafficResetDay       int      `json:"traffic_reset_day"`
-			TrafficResetTZMinutes int      `json:"traffic_reset_tz_minutes"`
-			ShutdownEnabled       bool     `json:"shutdown_enabled"`
-			ShutdownPercent       int      `json:"shutdown_percent"`
-			MonthlyPrice          float64  `json:"monthly_price"`
-			Currency              string   `json:"currency"`
-			ExpireAt              string   `json:"expire_at"`
-			Tags                  []string `json:"tags"`
-		}
+		var in nodeUpdateInput
 		if err := decodeJSON(w, r, &in); err != nil {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
 		if strings.TrimSpace(in.ID) == "" {
 			http.Error(w, "id required", http.StatusBadRequest)
-			return
-		}
-		updated, err := validateNodeInput(in.ID, in.DisplayName, in.TrafficGB, in.TrafficDirection, in.TrafficResetDay, in.TrafficResetTZMinutes, in.ShutdownEnabled, in.ShutdownPercent, in.MonthlyPrice, in.Currency, in.ExpireAt, in.Tags)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		s.mu.Lock()
@@ -1133,8 +1130,12 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "node not found", http.StatusNotFound)
 			return
 		}
-		updated.TokenNonce = old.TokenNonce
-		updated.CreatedAt = old.CreatedAt
+		updated, err := mergeNodeUpdate(old, in)
+		if err != nil {
+			s.mu.Unlock()
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		s.db.Nodes[in.ID] = updated
 		s.db.Settings.PolicyVersion++
 		s.mu.Unlock()
@@ -1168,6 +1169,62 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
+	displayName := old.DisplayName
+	trafficGB := float64(old.MonthlyTrafficLimit) / 1_000_000_000
+	direction := old.TrafficDirection
+	resetDay := old.TrafficResetDay
+	resetTZ := old.TrafficResetTZMinutes
+	shutdownEnabled := old.ShutdownEnabled
+	shutdownPercent := old.ShutdownPercent
+	monthlyPrice := old.MonthlyPrice
+	currency := old.Currency
+	expire := old.ExpireAt
+	tags := append([]string(nil), old.Tags...)
+
+	if in.DisplayName != nil {
+		displayName = *in.DisplayName
+	}
+	if in.TrafficGB != nil {
+		trafficGB = *in.TrafficGB
+	}
+	if in.TrafficDirection != nil {
+		direction = *in.TrafficDirection
+	}
+	if in.TrafficResetDay != nil {
+		resetDay = *in.TrafficResetDay
+	}
+	if in.TrafficResetTZMinutes != nil {
+		resetTZ = *in.TrafficResetTZMinutes
+	}
+	if in.ShutdownEnabled != nil {
+		shutdownEnabled = *in.ShutdownEnabled
+	}
+	if in.ShutdownPercent != nil {
+		shutdownPercent = *in.ShutdownPercent
+	}
+	if in.MonthlyPrice != nil {
+		monthlyPrice = *in.MonthlyPrice
+	}
+	if in.Currency != nil {
+		currency = *in.Currency
+	}
+	if in.ExpireAt != nil {
+		expire = *in.ExpireAt
+	}
+	if in.Tags != nil {
+		tags = append([]string(nil), (*in.Tags)...)
+	}
+
+	updated, err := validateNodeInput(old.ID, displayName, trafficGB, direction, resetDay, resetTZ, shutdownEnabled, shutdownPercent, monthlyPrice, currency, expire, tags)
+	if err != nil {
+		return nodeConfig{}, err
+	}
+	updated.TokenNonce = old.TokenNonce
+	updated.CreatedAt = old.CreatedAt
+	return updated, nil
 }
 
 func validateNodeInput(id, displayName string, trafficGB float64, direction string, resetDay, resetTZ int, shutdownEnabled bool, shutdownPercent int, monthlyPrice float64, currency, expire string, tags []string) (nodeConfig, error) {
@@ -2097,18 +2154,146 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 		return
 	}
 	fmt.Printf("\n修改节点：%s\n", n.DisplayName)
-	name := prompt(r, fmt.Sprintf("节点名称 [%s]: ", n.DisplayName))
-	if name == "" {
-		name = n.DisplayName
+	fmt.Println("提示：直接回车 = 保持原值；可选项输入 - = 清除。只会修改你实际填写的项目。")
+	body := map[string]any{"id": n.ID}
+
+	if v := prompt(r, fmt.Sprintf("节点名称 [%s]: ", n.DisplayName)); v != "" {
+		body["display_name"] = v
 	}
-	body := promptNodePolicy(r, &n)
-	body["id"] = n.ID
-	body["display_name"] = name
+
+	trafficCurrent := "未设置"
+	if n.MonthlyTrafficLimit > 0 {
+		trafficCurrent = trimFloat(float64(n.MonthlyTrafficLimit)/1_000_000_000) + " GB"
+	}
+	trafficRaw := prompt(r, fmt.Sprintf("月流量 [%s]（GB，0 或 - 清除）: ", trafficCurrent))
+	effectiveTraffic := float64(n.MonthlyTrafficLimit) / 1_000_000_000
+	if trafficRaw != "" {
+		if trafficRaw == "-" {
+			effectiveTraffic = 0
+			body["traffic_gb"] = float64(0)
+		} else if v, err := strconv.ParseFloat(strings.TrimSpace(trafficRaw), 64); err != nil || v < 0 {
+			fmt.Println("月流量格式无效，未做任何修改。")
+			return
+		} else {
+			effectiveTraffic = v
+			body["traffic_gb"] = v
+		}
+	}
+
+	if effectiveTraffic > 0 {
+		fmt.Printf("流量计费方向：1=出网  2=入网  3=入网+出网 [当前 %s]\n", trafficDirectionLabel(n.TrafficDirection))
+		if v := prompt(r, "选择 [回车保持]: "); v != "" {
+			switch v {
+			case "1":
+				body["traffic_direction"] = "outbound"
+			case "2":
+				body["traffic_direction"] = "inbound"
+			case "3":
+				body["traffic_direction"] = "total"
+			default:
+				fmt.Println("计费方向无效，未做任何修改。")
+				return
+			}
+		}
+		if v := prompt(r, fmt.Sprintf("每月流量重置日 [%d]（1-28）: ", n.TrafficResetDay)); v != "" {
+			i, err := strconv.Atoi(v)
+			if err != nil || i < 1 || i > 28 {
+				fmt.Println("重置日无效，未做任何修改。")
+				return
+			}
+			body["traffic_reset_day"] = i
+		}
+		if v := prompt(r, fmt.Sprintf("计费时区 [%s]，例如 +08:00: ", formatTZOffset(n.TrafficResetTZMinutes))); v != "" {
+			i, err := parseTZOffset(v)
+			if err != nil {
+				fmt.Println("计费时区格式无效，未做任何修改。")
+				return
+			}
+			body["traffic_reset_tz_minutes"] = i
+		}
+		ans := strings.ToLower(prompt(r, fmt.Sprintf("保护关机 [当前 %s]（y/n，回车保持）: ", map[bool]string{true: "开启", false: "关闭"}[n.ShutdownEnabled])))
+		if ans != "" {
+			switch ans {
+			case "y", "yes":
+				body["shutdown_enabled"] = true
+			case "n", "no":
+				body["shutdown_enabled"] = false
+			default:
+				fmt.Println("保护关机选项无效，未做任何修改。")
+				return
+			}
+		}
+		shutdownEffective := n.ShutdownEnabled
+		if v, ok := body["shutdown_enabled"].(bool); ok {
+			shutdownEffective = v
+		}
+		if shutdownEffective {
+			if v := prompt(r, fmt.Sprintf("保护关机阈值 [%d]%%: ", n.ShutdownPercent)); v != "" {
+				i, err := strconv.Atoi(v)
+				if err != nil || i < 50 || i > 100 {
+					fmt.Println("保护阈值无效，未做任何修改。")
+					return
+				}
+				body["shutdown_percent"] = i
+			}
+		}
+	}
+
+	priceCurrent := "未设置"
+	if n.MonthlyPrice > 0 {
+		priceCurrent = trimFloat(n.MonthlyPrice)
+	}
+	if v := prompt(r, fmt.Sprintf("月租 [%s]（- 清除）: ", priceCurrent)); v != "" {
+		if v == "-" {
+			body["monthly_price"] = float64(0)
+		} else if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err != nil || f < 0 {
+			fmt.Println("月租格式无效，未做任何修改。")
+			return
+		} else {
+			body["monthly_price"] = f
+		}
+	}
+	if v := prompt(r, fmt.Sprintf("币种 [%s]: ", n.Currency)); v != "" {
+		body["currency"] = v
+	}
+	expireCurrent := n.ExpireAt
+	if expireCurrent == "" {
+		expireCurrent = "未设置"
+	}
+	if v := prompt(r, fmt.Sprintf("到期日 [%s]（YYYY-MM-DD，- 清除）: ", expireCurrent)); v != "" {
+		if v == "-" {
+			body["expire_at"] = ""
+		} else {
+			body["expire_at"] = v
+		}
+	}
+	tagsCurrent := strings.Join(n.Tags, ",")
+	if tagsCurrent == "" {
+		tagsCurrent = "未设置"
+	}
+	if v := prompt(r, fmt.Sprintf("标签 [%s]（逗号分隔，- 清除）: ", tagsCurrent)); v != "" {
+		if v == "-" {
+			body["tags"] = []string{}
+		} else {
+			var tags []string
+			for _, t := range strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '，' }) {
+				if strings.TrimSpace(t) != "" {
+					tags = append(tags, strings.TrimSpace(t))
+				}
+			}
+			body["tags"] = tags
+		}
+	}
+
+	if len(body) == 1 {
+		fmt.Println("没有填写任何新值，节点保持原样。")
+		return
+	}
 	if err := c.request(http.MethodPut, "/v1/nodes", body, nil); err != nil {
 		fmt.Println("修改失败:", err)
 		return
 	}
-	fmt.Println("节点设置已保存。Agent 会通过签名策略自动同步流量配置，无远程命令执行能力。")
+	fmt.Println("节点设置已保存。未填写的项目保持原值；流量策略会通过签名配置自动同步到 Agent。")
 }
 
 func manageListNodes(c *localClient) {

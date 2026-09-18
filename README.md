@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.4-alpha`
+当前版本：`v0.4.5-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.4-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.5-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -571,11 +571,11 @@ SHA256SUMS
 
 # 12. 当前版本说明
 
-`v0.4.4-alpha` 重点修复 ICMP 线路测试归属、Dashboard 30 天可信设备会话，并强化 HTTPS 安全访问引导：
+`v0.4.5-alpha` 在 v0.4.4-alpha 的安全与 ICMP 修复基础上，重点优化节点信息展示和后续资料补充：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
-Cloudflare Tunnel 可选升级
+Cloudflare Tunnel HTTPS 作为推荐正式公网入口
 NAT / IPv6-only Agent
 只读 Dashboard
 本机 SSH 管理菜单
@@ -588,17 +588,18 @@ Telegram 掉线 / 恢复 / 流量提醒
 签名 Agent 配置同步
 Dashboard 不显示节点公网 IP
 节点名前按名称/标签识别常见国家或地区旗帜
-系统信息增加 Debian / Ubuntu / Alpine 等识别图标
+系统信息显示 Debian / Ubuntu / Alpine 等识别图标
+系统信息行增加 V4 / V4 NAT / V6 网络类型标签
 月租 / 到期剩余时间进入节点卡片
-线路质量按参考模板拆成延迟历史 + 丢包/失败历史两组
+节点资料支持局部修改：回车保持原值，只保存实际填写项目
+线路质量拆成延迟历史 + 丢包/失败历史两组
 线路名包含城市（例如广州联通）
 线路协议可在 SSH 菜单全局选择 ICMP / TCP / UDP
 线路城市可在 SSH 菜单全局选择北京 / 上海 / 广州
 线路区域右上角显示轻量协议标签
-ICMP 回复必须匹配目标源 IP，并为三运营商分配独立 identifier，防止并发串数据
+ICMP 回复必须匹配目标源 IP，并为三运营商分配独立 identifier
 Dashboard 正确登录后信任当前设备 30 天
 Direct HTTP 明确标注为未加密，Dashboard 显示安全警告
-Cloudflare Tunnel HTTPS 作为推荐正式公网入口
 Server 安装器升级时会显式重启正在运行的 systemd 服务
 ```
 

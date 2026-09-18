@@ -23,6 +23,7 @@ type StaticInfo struct {
 	CPUCores       int      `json:"cpu_cores"`
 	IPv4           []string `json:"ipv4"`
 	IPv6           []string `json:"ipv6"`
+	NetworkTypes   []string `json:"network_types,omitempty"`
 	MemTotal       uint64   `json:"mem_total"`
 	SwapTotal      uint64   `json:"swap_total"`
 	DiskTotal      uint64   `json:"disk_total"`
