@@ -40,11 +40,7 @@ function osMark(os){
   return `<span class="os-logo fallback">L</span>`;
 }
 function networkBadges(types){
-  const valid=/^V(?:4(?: NAT)?|6)(?: (?:(?:家宽|IDC|移动)(?:·(?:原生|广播))?|(?:原生|广播)))?$/;
-  return (types||[]).map(x=>String(x)).filter(x=>valid.test(x)).map(x=>{
-    const cls=[x.includes('NAT')?'nat':'',x.includes('家宽')?'home':'',x.includes('IDC')?'idc':'',x.includes('移动')?'mobile':'',x.includes('广播')?'broadcast':'',x.includes('原生')?'native':''].filter(Boolean).join(' ');
-    return `<span class="net-badge ${cls}">${esc(x)}</span>`;
-  }).join('');
+  return (types||[]).map(x=>String(x)).filter(x=>x==='V4'||x==='V6').map(x=>`<span class="net-badge">${esc(x)}</span>`).join('');
 }
 
 function priceText(n){

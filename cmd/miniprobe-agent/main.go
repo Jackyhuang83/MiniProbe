@@ -14,7 +14,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,10 +28,10 @@ import (
 )
 
 const (
-	agentVersion       = "0.4.7-alpha"
+	agentVersion       = "0.4.8-alpha"
 	probeInterval      = 10 * time.Second
 	probeHistoryWindow = 20
-	ipIntelRefresh     = 24 * time.Hour
+	networkTypeRefresh = 5 * time.Minute
 )
 
 type cfg struct {
@@ -59,19 +58,6 @@ type probeState struct {
 	lossHist []int
 	lossSent []int
 	lossLost []int
-}
-
-type ipTraits struct {
-	GeoCountry    string
-	GeoCountryAlt string
-	RegCountry    string
-	ISP           string
-	Org           string
-	IsMobile      bool
-	IsVPN         bool
-	IsTor         bool
-	IsProxy       bool
-	IsDatacenter  bool
 }
 
 type probeTask struct {
@@ -155,7 +141,7 @@ func main() {
 
 	info := collectStatic()
 	var infoMu sync.RWMutex
-	go refreshIPNature(&infoMu, &info)
+	go refreshNetworkTypes(&infoMu, &info)
 	prevCPU := readCPU()
 	prevNet := readNet(c.Interface)
 	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true}}
@@ -538,350 +524,50 @@ func collectStatic() common.StaticInfo {
 }
 
 func classifyNetworkTypes(v4s, v6s []string) []string {
-	hasPublicV4 := false
-	hasNATV4 := false
-	hasPublicV6 := false
+	hasV4 := false
+	hasV6 := false
 	for _, raw := range v4s {
 		ip := net.ParseIP(strings.TrimSpace(raw))
 		if ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
 			continue
 		}
-		ip = ip.To4()
-		if ip.IsPrivate() || isCGNAT(ip) {
-			hasNATV4 = true
-			continue
-		}
-		if ip.IsGlobalUnicast() {
-			hasPublicV4 = true
-		}
+		hasV4 = true
+		break
 	}
 	for _, raw := range v6s {
 		ip := net.ParseIP(strings.TrimSpace(raw))
-		if ip == nil || ip.To4() != nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
+		if ip == nil || ip.To4() != nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
 			continue
 		}
-		hasPublicV6 = true
+		hasV6 = true
+		break
 	}
 	out := make([]string, 0, 2)
-	if hasPublicV4 {
+	if hasV4 {
 		out = append(out, "V4")
-	} else if hasNATV4 {
-		out = append(out, "V4 NAT")
 	}
-	if hasPublicV6 {
+	if hasV6 {
 		out = append(out, "V6")
 	}
 	return out
 }
 
-func isCGNAT(ip net.IP) bool {
-	v4 := ip.To4()
-	if v4 == nil {
-		return false
-	}
-	return v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127
-}
-
-func refreshIPNature(mu *sync.RWMutex, info *common.StaticInfo) {
+func refreshNetworkTypes(mu *sync.RWMutex, info *common.StaticInfo) {
 	refresh := func() {
-		base := classifyNetworkTypes(ips(false), ips(true))
-		labels := enrichNetworkTypes(base)
+		v4 := ips(false)
+		v6 := ips(true)
 		mu.Lock()
-		info.NetworkTypes = labels
+		info.IPv4 = v4
+		info.IPv6 = v6
+		info.NetworkTypes = classifyNetworkTypes(v4, v6)
 		mu.Unlock()
 	}
 	refresh()
-	ticker := time.NewTicker(ipIntelRefresh)
+	ticker := time.NewTicker(networkTypeRefresh)
 	defer ticker.Stop()
 	for range ticker.C {
 		refresh()
 	}
-}
-
-func enrichNetworkTypes(base []string) []string {
-	out := append([]string(nil), base...)
-	type result struct {
-		family int
-		nature string
-	}
-	ch := make(chan result, 2)
-	var wg sync.WaitGroup
-	for _, family := range []int{4, 6} {
-		if !hasNetworkFamily(base, family) {
-			continue
-		}
-		wg.Add(1)
-		go func(family int) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-			defer cancel()
-			traits, err := lookupIPTraits(ctx, family)
-			if err != nil {
-				return
-			}
-			if nature := classifyIPNature(traits); nature != "" {
-				ch <- result{family: family, nature: nature}
-			}
-		}(family)
-	}
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-	for r := range ch {
-		for i, label := range out {
-			if (r.family == 4 && strings.HasPrefix(label, "V4")) || (r.family == 6 && strings.HasPrefix(label, "V6")) {
-				out[i] = label + " " + r.nature
-			}
-		}
-	}
-	return out
-}
-
-func hasNetworkFamily(labels []string, family int) bool {
-	prefix := "V4"
-	if family == 6 {
-		prefix = "V6"
-	}
-	for _, label := range labels {
-		if strings.HasPrefix(label, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func lookupIPTraits(ctx context.Context, family int) (ipTraits, error) {
-	ip, err := lookupPublicIP(ctx, family)
-	if err != nil {
-		return ipTraits{}, err
-	}
-	traits, err := queryIPIntelligence(ctx, ip)
-	if err != nil {
-		return ipTraits{}, err
-	}
-	// Regional classification is intentionally conservative. A single GeoIP
-	// database is not enough evidence for the VPS-community "原生/广播" label,
-	// so require a second independent GeoIP country to agree before comparing
-	// against the RIR network object's own RDAP country.
-	if country, err := querySecondaryGeoCountry(ctx, ip); err == nil {
-		traits.GeoCountryAlt = country
-	}
-	if country, err := queryRDAPCountry(ctx, ip); err == nil {
-		traits.RegCountry = country
-	}
-	return traits, nil
-}
-
-func lookupPublicIP(ctx context.Context, family int) (net.IP, error) {
-	endpoint := "https://api-ipv4.ip.sb/ip"
-	if family == 6 {
-		endpoint = "https://api-ipv6.ip.sb/ip"
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("public IP lookup HTTP %d", resp.StatusCode)
-	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 128))
-	if err != nil {
-		return nil, err
-	}
-	ip := net.ParseIP(strings.TrimSpace(string(b)))
-	if ip == nil || (family == 4 && ip.To4() == nil) || (family == 6 && ip.To4() != nil) {
-		return nil, errors.New("public IP lookup returned wrong address family")
-	}
-	return ip, nil
-}
-
-func queryIPIntelligence(ctx context.Context, ip net.IP) (ipTraits, error) {
-	u := "https://api.ipquery.io/" + url.PathEscape(ip.String())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return ipTraits{}, err
-	}
-	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return ipTraits{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return ipTraits{}, fmt.Errorf("IP intelligence HTTP %d", resp.StatusCode)
-	}
-	var body struct {
-		ISP struct {
-			Org string `json:"org"`
-			ISP string `json:"isp"`
-		} `json:"isp"`
-		Location struct {
-			CountryCode string `json:"country_code"`
-		} `json:"location"`
-		Risk struct {
-			IsMobile     bool `json:"is_mobile"`
-			IsVPN        bool `json:"is_vpn"`
-			IsTor        bool `json:"is_tor"`
-			IsProxy      bool `json:"is_proxy"`
-			IsDatacenter bool `json:"is_datacenter"`
-		} `json:"risk"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
-		return ipTraits{}, err
-	}
-	return ipTraits{
-		GeoCountry: normalizeCountryCode(body.Location.CountryCode),
-		ISP:        body.ISP.ISP, Org: body.ISP.Org,
-		IsMobile: body.Risk.IsMobile, IsVPN: body.Risk.IsVPN, IsTor: body.Risk.IsTor,
-		IsProxy: body.Risk.IsProxy, IsDatacenter: body.Risk.IsDatacenter,
-	}, nil
-}
-
-func querySecondaryGeoCountry(ctx context.Context, ip net.IP) (string, error) {
-	u := "https://api.ip.sb/geoip/" + url.PathEscape(ip.String())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("secondary GeoIP HTTP %d", resp.StatusCode)
-	}
-	var body struct {
-		CountryCode string `json:"country_code"`
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&body); err != nil {
-		return "", err
-	}
-	if cc := normalizeCountryCode(body.CountryCode); cc != "" {
-		return cc, nil
-	}
-	return "", errors.New("secondary GeoIP country unavailable")
-}
-
-func queryRDAPCountry(ctx context.Context, ip net.IP) (string, error) {
-	u := "https://rdap.org/ip/" + url.PathEscape(ip.String())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Accept", "application/rdap+json, application/json")
-	req.Header.Set("User-Agent", "MiniProbe/"+agentVersion)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("RDAP HTTP %d", resp.StatusCode)
-	}
-	var raw any
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 512<<10)).Decode(&raw); err != nil {
-		return "", err
-	}
-	// RFC 9083 defines country on the top-level IP network object. Do not walk
-	// into nested registrant/contact entities: their country describes a person
-	// or organization and was the source of false "原生/广播" decisions in
-	// v0.4.6-alpha.
-	if country := findRDAPCountry(raw); country != "" {
-		return country, nil
-	}
-	return "", errors.New("RDAP network country unavailable")
-}
-
-func findRDAPCountry(v any) string {
-	x, ok := v.(map[string]any)
-	if !ok {
-		return ""
-	}
-	if cls, _ := x["objectClassName"].(string); cls != "" && cls != "ip network" {
-		return ""
-	}
-	raw, ok := x["country"].(string)
-	if !ok {
-		return ""
-	}
-	return normalizeCountryCode(raw)
-}
-
-func normalizeCountryCode(v string) string {
-	v = strings.ToUpper(strings.TrimSpace(v))
-	if len(v) != 2 || v[0] < 'A' || v[0] > 'Z' || v[1] < 'A' || v[1] > 'Z' {
-		return ""
-	}
-	return v
-}
-
-func classifyIPNature(t ipTraits) string {
-	parts := make([]string, 0, 2)
-
-	// Network nature and regional nature are independent dimensions. Prefer
-	// explicit intelligence flags over organization-name guessing.
-	switch {
-	case t.IsDatacenter:
-		parts = append(parts, "IDC")
-	case t.IsMobile:
-		parts = append(parts, "移动")
-	case isLikelyResidential(t):
-		parts = append(parts, "家宽")
-	}
-
-	if regional := classifyRegionalNature(t); regional != "" {
-		parts = append(parts, regional)
-	}
-	return strings.Join(parts, "·")
-}
-
-func classifyRegionalNature(t ipTraits) string {
-	// Require two independent GeoIP country results to agree. If they disagree,
-	// or the RIR network record lacks a country, leave the label unknown instead
-	// of guessing.
-	if t.GeoCountry == "" || t.GeoCountryAlt == "" || t.RegCountry == "" {
-		return ""
-	}
-	if t.GeoCountry != t.GeoCountryAlt {
-		return ""
-	}
-	if t.GeoCountry == t.RegCountry {
-		return "原生"
-	}
-	return "广播"
-}
-
-func isLikelyResidential(t ipTraits) bool {
-	if t.IsDatacenter || t.IsMobile || t.IsVPN || t.IsTor || t.IsProxy {
-		return false
-	}
-	s := strings.ToLower(strings.TrimSpace(t.ISP + " " + t.Org))
-	if s == "" {
-		return false
-	}
-	// Deliberately avoid generic carrier/company names such as "telecom",
-	// "unicom", "NTT", "KDDI" or "SoftBank": the same organizations also own
-	// transit and datacenter ranges. Only access-network wording is accepted.
-	keywords := []string{
-		"residential", "broadband", "fiber", "fibre", "cable",
-		"ftth", "adsl", "vdsl", "fixed broadband", "fixed-line", "fixed line",
-		"home internet", "home broadband",
-	}
-	for _, keyword := range keywords {
-		if strings.Contains(s, keyword) {
-			return true
-		}
-	}
-	return false
 }
 
 func collectMetrics(a, b cpuSample, n1, n2 netSample) common.Metrics {
@@ -1048,6 +734,11 @@ func readNet(iface string) netSample {
 }
 
 func probeConfigFromPolicy(p common.ProbePolicy) probeConfig {
+	has4, has6 := localFamilies()
+	return probeConfigFromPolicyForFamilies(p, has4, has6)
+}
+
+func probeConfigFromPolicyForFamilies(p common.ProbePolicy, has4, has6 bool) probeConfig {
 	region := strings.ToLower(strings.TrimSpace(p.Region))
 	protocol := strings.ToLower(strings.TrimSpace(p.Protocol))
 	enabled := p.Enabled
@@ -1068,14 +759,22 @@ func probeConfigFromPolicy(p common.ProbePolicy) probeConfig {
 	}
 
 	city, telecom, unicom, mobile := builtInProbeTargets(region)
-	if strings.TrimSpace(p.Telecom) != "" {
-		telecom = strings.TrimSpace(p.Telecom)
-	}
-	if strings.TrimSpace(p.Unicom) != "" {
-		unicom = strings.TrimSpace(p.Unicom)
-	}
-	if strings.TrimSpace(p.Mobile) != "" {
-		mobile = strings.TrimSpace(p.Mobile)
+	// IPv6-only nodes cannot reach the Server's IPv4 city targets. Use stable
+	// carrier-wide IPv6 DNS endpoints instead. We deliberately label these rows
+	// as IPv6 rather than pretending the anycast/provider endpoints are tied to
+	// the selected city. Dual-stack nodes keep the established IPv4 city tests.
+	if !has4 && has6 {
+		city, telecom, unicom, mobile = builtInIPv6ProbeTargets()
+	} else {
+		if strings.TrimSpace(p.Telecom) != "" {
+			telecom = strings.TrimSpace(p.Telecom)
+		}
+		if strings.TrimSpace(p.Unicom) != "" {
+			unicom = strings.TrimSpace(p.Unicom)
+		}
+		if strings.TrimSpace(p.Mobile) != "" {
+			mobile = strings.TrimSpace(p.Mobile)
+		}
 	}
 	return probeConfig{
 		enabled: enabled, region: region, city: city, protocol: protocol,
@@ -1102,6 +801,14 @@ func builtInProbeTargets(region string) (city, telecom, unicom, mobile string) {
 	default:
 		return "广州", "202.96.128.86", "210.21.4.130", "211.136.192.6"
 	}
+}
+
+func builtInIPv6ProbeTargets() (label, telecom, unicom, mobile string) {
+	// Carrier-wide IPv6 DNS endpoints. These are intentionally not presented as
+	// Beijing/Shanghai/Guangzhou nodes because their routing can be anycast or
+	// provider-wide. The goal is a truthful IPv6 three-carrier reachability/RTT
+	// signal for IPv6-only VPSes, not false city precision.
+	return "IPv6", "240e:4c:4008::1", "2408:8888::8", "2409:8088::a"
 }
 
 func runProbes(cfg probeConfig) []common.ProbeResult {
@@ -1257,10 +964,16 @@ func icmpReplyFromTarget(addr net.Addr, target net.IP) bool {
 
 func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
 	ip := net.ParseIP(target)
-	if ip == nil || ip.To4() == nil {
+	if ip == nil {
 		return 0, false
 	}
-	targetIP := ip.To4()
+	if v4 := ip.To4(); v4 != nil {
+		return probeICMPv4Once(v4, id, seq)
+	}
+	return probeICMPv6Once(ip.To16(), id, seq)
+}
+
+func probeICMPv4Once(targetIP net.IP, id, seq uint16) (float64, bool) {
 	conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
 	if err != nil {
 		return 0, false
@@ -1268,7 +981,7 @@ func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
 	defer conn.Close()
 	_ = conn.SetDeadline(time.Now().Add(900 * time.Millisecond))
 	packet := make([]byte, 8+16)
-	packet[0] = 8 // echo request
+	packet[0] = 8 // Echo Request
 	binary.BigEndian.PutUint16(packet[4:6], id)
 	binary.BigEndian.PutUint16(packet[6:8], seq)
 	binary.BigEndian.PutUint64(packet[8:16], uint64(time.Now().UnixNano()))
@@ -1284,9 +997,6 @@ func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
 		if err != nil {
 			return 0, false
 		}
-		// Raw ICMP sockets can receive echo replies destined for another probe
-		// running concurrently in this process. Never attribute a reply unless
-		// its source IP is the exact carrier target currently being measured.
 		if !icmpReplyFromTarget(addr, targetIP) {
 			continue
 		}
@@ -1298,7 +1008,53 @@ func probeICMPOnce(target string, id, seq uint16) (float64, bool) {
 			}
 			msg = msg[hl:]
 		}
-		if len(msg) < 8 || msg[0] != 0 {
+		if len(msg) < 8 || msg[0] != 0 { // Echo Reply
+			continue
+		}
+		if binary.BigEndian.Uint16(msg[4:6]) != id || binary.BigEndian.Uint16(msg[6:8]) != seq {
+			continue
+		}
+		return float64(time.Since(start).Microseconds()) / 1000, true
+	}
+}
+
+func probeICMPv6Once(targetIP net.IP, id, seq uint16) (float64, bool) {
+	if targetIP == nil {
+		return 0, false
+	}
+	conn, err := net.ListenPacket("ip6:ipv6-icmp", "::")
+	if err != nil {
+		return 0, false
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(900 * time.Millisecond))
+	packet := make([]byte, 8+16)
+	packet[0] = 128 // ICMPv6 Echo Request
+	binary.BigEndian.PutUint16(packet[4:6], id)
+	binary.BigEndian.PutUint16(packet[6:8], seq)
+	binary.BigEndian.PutUint64(packet[8:16], uint64(time.Now().UnixNano()))
+	binary.BigEndian.PutUint64(packet[16:24], uint64(seq))
+	// Linux calculates the ICMPv6 checksum for raw ICMPv6 sockets.
+	start := time.Now()
+	if _, err := conn.WriteTo(packet, &net.IPAddr{IP: targetIP}); err != nil {
+		return 0, false
+	}
+	buf := make([]byte, 1500)
+	for {
+		n, addr, err := conn.ReadFrom(buf)
+		if err != nil {
+			return 0, false
+		}
+		if !icmpReplyFromTarget(addr, targetIP) {
+			continue
+		}
+		msg := buf[:n]
+		// Most Linux raw IPv6 sockets return the ICMPv6 body directly. Accept a
+		// full IPv6 header as well so the parser stays portable.
+		if len(msg) >= 40 && msg[0]>>4 == 6 {
+			msg = msg[40:]
+		}
+		if len(msg) < 8 || msg[0] != 129 { // ICMPv6 Echo Reply
 			continue
 		}
 		if binary.BigEndian.Uint16(msg[4:6]) != id || binary.BigEndian.Uint16(msg[6:8]) != seq {
@@ -1363,7 +1119,7 @@ func localFamilies() (bool, bool) {
 		}
 		if ip.To4() != nil {
 			has4 = true
-		} else {
+		} else if !ip.IsPrivate() {
 			has6 = true
 		}
 	}

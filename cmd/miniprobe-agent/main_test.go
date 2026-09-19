@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,15 +98,46 @@ func TestSignedProbePolicy(t *testing.T) {
 }
 
 func TestProbeConfigLabelsCityAndProtocol(t *testing.T) {
-	cfg := probeConfigFromPolicy(common.ProbePolicy{
+	cfg := probeConfigFromPolicyForFamilies(common.ProbePolicy{
 		Enabled: true, Region: "shanghai", Protocol: "tcp",
 		Telecom: "202.96.209.133", Unicom: "210.22.70.3", Mobile: "211.136.112.50",
-	})
+	}, true, true)
 	if !cfg.enabled || cfg.protocol != "tcp" || cfg.city != "上海" {
 		t.Fatalf("unexpected cfg: %+v", cfg)
 	}
 	if len(cfg.tasks) != 3 || cfg.tasks[1].name != "上海联通" {
 		t.Fatalf("unexpected tasks: %+v", cfg.tasks)
+	}
+}
+
+func TestProbeConfigIPv6OnlyUsesCarrierIPv6Targets(t *testing.T) {
+	p := common.ProbePolicy{
+		Enabled: true, Region: "guangzhou", Protocol: "icmp",
+		Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6",
+	}
+	cfg := probeConfigFromPolicyForFamilies(p, false, true)
+	if cfg.city != "IPv6" || len(cfg.tasks) != 3 {
+		t.Fatalf("unexpected IPv6-only cfg: %+v", cfg)
+	}
+	for _, task := range cfg.tasks {
+		ip := net.ParseIP(task.target)
+		if ip == nil || ip.To4() != nil {
+			t.Fatalf("IPv6-only target is not IPv6: %+v", task)
+		}
+		if !strings.HasPrefix(task.name, "IPv6") {
+			t.Fatalf("IPv6-only row must not claim city precision: %+v", task)
+		}
+	}
+}
+
+func TestProbeConfigDualStackKeepsIPv4CityTargets(t *testing.T) {
+	p := common.ProbePolicy{
+		Enabled: true, Region: "shanghai", Protocol: "tcp",
+		Telecom: "202.96.209.133", Unicom: "210.22.70.3", Mobile: "211.136.112.50",
+	}
+	cfg := probeConfigFromPolicyForFamilies(p, true, true)
+	if cfg.city != "上海" || cfg.tasks[0].target != "202.96.209.133" || cfg.tasks[1].name != "上海联通" {
+		t.Fatalf("dual-stack should preserve city IPv4 probe policy: %+v", cfg)
 	}
 }
 
@@ -143,10 +175,11 @@ func TestClassifyNetworkTypes(t *testing.T) {
 		want []string
 	}{
 		{name: "public v4", v4: []string{"203.0.113.9"}, want: []string{"V4"}},
-		{name: "nat v4", v4: []string{"10.0.0.2", "100.64.0.9"}, want: []string{"V4 NAT"}},
+		{name: "private or cgnat v4 is still V4", v4: []string{"10.0.0.2", "100.64.0.9"}, want: []string{"V4"}},
 		{name: "public v6", v6: []string{"2001:db8::9"}, want: []string{"V6"}},
-		{name: "nat v4 plus v6", v4: []string{"192.168.1.2"}, v6: []string{"2606:4700::1111"}, want: []string{"V4 NAT", "V6"}},
+		{name: "private v4 plus v6", v4: []string{"192.168.1.2"}, v6: []string{"2606:4700::1111"}, want: []string{"V4", "V6"}},
 		{name: "ignore link local", v4: []string{"169.254.10.2"}, v6: []string{"fe80::1"}, want: nil},
+		{name: "ignore private ula", v6: []string{"fc00::1"}, want: nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -185,51 +218,5 @@ func TestRollingLossMatchesTwentyRoundWindow(t *testing.T) {
 	_, _, _, rolling = appendHistories(key, 0, 0, 0, 4, 0)
 	if rolling != 0 {
 		t.Fatalf("rolling loss after window shift got %.4f want 0", rolling)
-	}
-}
-
-func TestClassifyIPNature(t *testing.T) {
-	cases := []struct {
-		name string
-		in   ipTraits
-		want string
-	}{
-		{name: "residential native", in: ipTraits{GeoCountry: "US", GeoCountryAlt: "US", RegCountry: "US", ISP: "Comcast Cable", Org: "Comcast"}, want: "家宽·原生"},
-		{name: "native datacenter", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "HK", RegCountry: "HK", ISP: "Example Hosting", IsDatacenter: true}, want: "IDC·原生"},
-		{name: "broadcast datacenter", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "HK", RegCountry: "US", ISP: "Example Hosting", IsDatacenter: true}, want: "IDC·广播"},
-		{name: "mobile native", in: ipTraits{GeoCountry: "JP", GeoCountryAlt: "JP", RegCountry: "JP", ISP: "NTT Mobile", IsMobile: true}, want: "移动·原生"},
-		{name: "generic telecom is not residential", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "HK", RegCountry: "HK", ISP: "Example Telecom"}, want: "原生"},
-		{name: "geo providers disagree", in: ipTraits{GeoCountry: "HK", GeoCountryAlt: "SG", RegCountry: "HK", IsDatacenter: true}, want: "IDC"},
-		{name: "unknown registration", in: ipTraits{GeoCountry: "SG", GeoCountryAlt: "SG", ISP: "Unknown Network"}, want: ""},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := classifyIPNature(tc.in); got != tc.want {
-				t.Fatalf("got %q want %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFindRDAPCountryUsesTopLevelNetworkOnly(t *testing.T) {
-	raw := map[string]any{
-		"objectClassName": "ip network",
-		"country":         "hk",
-		"entities": []any{
-			map[string]any{"handle": "x", "country": "us"},
-		},
-	}
-	if got := findRDAPCountry(raw); got != "HK" {
-		t.Fatalf("got %q want HK", got)
-	}
-
-	nestedOnly := map[string]any{
-		"objectClassName": "ip network",
-		"entities": []any{
-			map[string]any{"handle": "x", "country": "hk"},
-		},
-	}
-	if got := findRDAPCountry(nestedOnly); got != "" {
-		t.Fatalf("nested entity country must be ignored, got %q", got)
 	}
 }
