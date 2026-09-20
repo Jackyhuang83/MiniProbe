@@ -58,6 +58,9 @@ fi
 [ -s "$TMP" ] || { echo "Agent 下载失败：$URL" >&2; exit 1; }
 chmod 0755 "$TMP"
 mv -f "$TMP" "$BIN"
+# A manual install/update is authoritative. Remove any self-update overlay so
+# the freshly installed base Agent starts first and can establish a new baseline.
+rm -f "$STATE_DIR/bin/miniprobe-agent" "$STATE_DIR/bin/.miniprobe-agent.new" 2>/dev/null || true
 
 cat > "$INSTALL_DIR/agent.env" <<ENV
 MINIPROBE_ENDPOINT=$SERVER
@@ -79,6 +82,12 @@ set -eu
 set -a
 . /opt/miniprobe/agent.env
 set +a
+STATE_FILE=${MINIPROBE_STATE_FILE:-/var/lib/miniprobe-agent/state.json}
+STATE_DIR=${STATE_FILE%/*}
+UPDATED_BIN="$STATE_DIR/bin/miniprobe-agent"
+if [ -x "$UPDATED_BIN" ]; then
+  exec "$UPDATED_BIN"
+fi
 exec /opt/miniprobe/miniprobe-agent
 RUNNER
 chmod 0755 "$INSTALL_DIR/run-agent.sh"

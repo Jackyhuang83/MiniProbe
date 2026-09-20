@@ -110,23 +110,38 @@ func TestProbeConfigLabelsCityAndProtocol(t *testing.T) {
 	}
 }
 
-func TestProbeConfigIPv6OnlyUsesCarrierIPv6Targets(t *testing.T) {
+func TestProbeConfigIPv6OnlyUsesCarrierIPv6DNS(t *testing.T) {
 	p := common.ProbePolicy{
 		Enabled: true, Region: "guangzhou", Protocol: "icmp",
 		Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6",
 	}
 	cfg := probeConfigFromPolicyForFamilies(p, false, true)
-	if cfg.city != "IPv6" || len(cfg.tasks) != 3 {
+	if cfg.city != "IPv6" || cfg.protocol != "udp" || len(cfg.tasks) != 3 {
 		t.Fatalf("unexpected IPv6-only cfg: %+v", cfg)
 	}
-	for _, task := range cfg.tasks {
+	want := []string{"240e:4c:4008::1", "2408:8888::8", "2409:8088::a"}
+	for i, task := range cfg.tasks {
 		ip := net.ParseIP(task.target)
 		if ip == nil || ip.To4() != nil {
 			t.Fatalf("IPv6-only target is not IPv6: %+v", task)
 		}
+		if task.target != want[i] {
+			t.Fatalf("IPv6-only target got %s want %s", task.target, want[i])
+		}
 		if !strings.HasPrefix(task.name, "IPv6") {
 			t.Fatalf("IPv6-only row must not claim city precision: %+v", task)
 		}
+	}
+}
+
+func TestReportEndpointsUseOnlyLoopbackForServerHost(t *testing.T) {
+	got := reportEndpoints("https://probe.example.com/", true)
+	if len(got) != 1 || got[0] != localServerEndpoint {
+		t.Fatalf("server-host Agent must use loopback only: %v", got)
+	}
+	got = reportEndpoints("https://probe.example.com", false)
+	if len(got) != 1 || got[0] != "https://probe.example.com" {
+		t.Fatalf("unexpected remote endpoints: %v", got)
 	}
 }
 
@@ -218,5 +233,43 @@ func TestRollingLossMatchesTwentyRoundWindow(t *testing.T) {
 	_, _, _, rolling = appendHistories(key, 0, 0, 0, 4, 0)
 	if rolling != 0 {
 		t.Fatalf("rolling loss after window shift got %.4f want 0", rolling)
+	}
+}
+
+func TestSignedUpgradePolicyIsNarrowAndVerified(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	asset, err := expectedAgentAsset()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := common.UpgradePolicy{
+		RequestID: "req-1", NodeID: "node-1", TargetVersion: "0.4.10-alpha",
+		Asset: asset, SHA256: strings.Repeat("a", 64), Size: 12345,
+	}
+	payload, _ := json.Marshal(p)
+	signed := &common.SignedUpgradePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, payload))}
+	got, err := verifySignedUpgradePolicy("node-1", pub, signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Asset != asset || got.TargetVersion != p.TargetVersion {
+		t.Fatalf("unexpected upgrade policy: %+v", got)
+	}
+
+	tampered := *signed
+	tampered.Policy.TargetVersion = "9.9.9"
+	if _, err := verifySignedUpgradePolicy("node-1", pub, &tampered); err == nil {
+		t.Fatal("tampered upgrade policy must be rejected")
+	}
+
+	wrongAsset := p
+	wrongAsset.Asset = "miniprobe-agent-linux-not-this-arch"
+	b, _ := json.Marshal(wrongAsset)
+	wrongSigned := &common.SignedUpgradePolicy{Policy: wrongAsset, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, b))}
+	if _, err := verifySignedUpgradePolicy("node-1", pub, wrongSigned); err == nil {
+		t.Fatal("upgrade policy must not authorize an arbitrary asset")
 	}
 }

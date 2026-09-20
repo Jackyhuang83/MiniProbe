@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
@@ -28,10 +29,12 @@ import (
 )
 
 const (
-	agentVersion       = "0.4.8-alpha"
-	probeInterval      = 10 * time.Second
-	probeHistoryWindow = 20
-	networkTypeRefresh = 5 * time.Minute
+	agentVersion         = "0.4.9-alpha"
+	selfUpdateCapability = "self-update-v1"
+	maxAgentUpdateBytes  = int64(32 << 20)
+	probeInterval        = 10 * time.Second
+	probeHistoryWindow   = 20
+	networkTypeRefresh   = 5 * time.Minute
 )
 
 type cfg struct {
@@ -96,6 +99,7 @@ var probeStates sync.Map
 
 func main() {
 	var c cfg
+	showVersion := flag.Bool("version", false, "print Agent version and exit")
 	flag.StringVar(&c.Endpoint, "endpoint", getenv("MINIPROBE_ENDPOINT", ""), "MiniProbe server URL")
 	flag.StringVar(&c.Token, "token", getenv("MINIPROBE_TOKEN", ""), "agent token")
 	flag.StringVar(&c.NodeID, "node-id", getenv("MINIPROBE_NODE_ID", ""), "node id (default hostname)")
@@ -105,6 +109,10 @@ func main() {
 	flag.DurationVar(&c.Interval, "interval", 2*time.Second, "report interval")
 	flag.StringVar(&c.Interface, "interface", getenv("MINIPROBE_INTERFACE", "auto"), "network interface or auto")
 	flag.Parse()
+	if *showVersion {
+		fmt.Println(agentVersion)
+		return
+	}
 	if c.Endpoint == "" || c.Token == "" {
 		fmt.Fprintln(os.Stderr, "endpoint and token are required")
 		os.Exit(2)
@@ -144,13 +152,15 @@ func main() {
 	go refreshNetworkTypes(&infoMu, &info)
 	prevCPU := readCPU()
 	prevNet := readNet(c.Interface)
-	client := &http.Client{Timeout: 12 * time.Second, Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext, ForceAttemptHTTP2: true}}
+	client := newHTTPClient()
 	lastSave := time.Time{}
 	lastErrLog := time.Time{}
 	reportingFailed := false
 	lastProbeAt := time.Time{}
 	lastProbeKey := ""
 	var lastProbes []common.ProbeResult
+	lastUpgradeRequest := ""
+	lastUpgradeAttempt := time.Time{}
 
 	// Establish the traffic baseline without counting traffic that happened
 	// before MiniProbe was installed.
@@ -179,7 +189,7 @@ func main() {
 			lastProbeAt = time.Now()
 			lastProbeKey = probeKey
 		}
-		endpoint := strings.TrimRight(state.Endpoint, "/")
+		configuredEndpoint := strings.TrimRight(state.Endpoint, "/")
 		probeProtocol := probeCfg.protocol
 		if !probeCfg.enabled {
 			probeProtocol = "off"
@@ -188,16 +198,35 @@ func main() {
 		reportInfo := info
 		infoMu.RUnlock()
 		rep := common.Report{
-			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: endpoint, PolicyVersion: state.PolicyVersion,
+			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: configuredEndpoint, Capabilities: []string{selfUpdateCapability}, PolicyVersion: state.PolicyVersion,
 			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol,
 			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
 		}
-		response, sendErr := send(client, endpoint, c.Token, rep)
+
+		// When the Agent runs on the MiniProbe Server host, report over loopback
+		// instead of hairpinning through public DNS / Cloudflare Tunnel. The local
+		// admin socket plus loopback health check identify the Server host. Once
+		// identified, reporting stays local so recovery is independent of DNS/Tunnel.
+		endpoints := reportEndpoints(configuredEndpoint, localMiniProbeServerAvailable(client))
+		var response *common.ReportResponse
+		var sendErr error
+		successfulEndpoint := ""
+		for _, endpoint := range endpoints {
+			rep.AgentEndpoint = endpoint
+			response, sendErr = send(client, endpoint, c.Token, rep)
+			if sendErr == nil {
+				successfulEndpoint = endpoint
+				break
+			}
+		}
 		if sendErr != nil {
 			if !reportingFailed || time.Since(lastErrLog) >= time.Minute {
 				fmt.Fprintf(os.Stderr, "%s MiniProbe report failed: %v\n", time.Now().Format(time.RFC3339), sendErr)
 				lastErrLog = time.Now()
 			}
+			// Rebuild the transport after a network/DNS failure so a recovered host
+			// is not tied to stale idle connections or resolver state.
+			client = resetHTTPClient(client)
 			reportingFailed = true
 		} else {
 			if reportingFailed {
@@ -224,6 +253,20 @@ func main() {
 						}
 					} else if changed {
 						stateChanged = true
+					}
+				}
+				if response.UpgradePolicy != nil {
+					reqID := strings.TrimSpace(response.UpgradePolicy.Policy.RequestID)
+					if reqID != lastUpgradeRequest || lastUpgradeAttempt.IsZero() || time.Since(lastUpgradeAttempt) >= 5*time.Minute {
+						lastUpgradeRequest = reqID
+						lastUpgradeAttempt = time.Now()
+						_ = saveAgentState(c.StateFile, state)
+						if err := applySignedUpgradePolicy(client, successfulEndpoint, c.Token, c.NodeID, pubKey, response.UpgradePolicy, c.StateFile); err != nil {
+							if time.Since(lastErrLog) >= time.Minute {
+								fmt.Fprintf(os.Stderr, "%s MiniProbe Agent upgrade failed: %v\n", time.Now().Format(time.RFC3339), err)
+								lastErrLog = time.Now()
+							}
+						}
 					}
 				}
 				if stateChanged {
@@ -254,6 +297,62 @@ func main() {
 	}
 }
 
+const (
+	localServerEndpoint = "http://127.0.0.1:28888"
+	localAdminSocket    = "/run/miniprobe/admin.sock"
+)
+
+func newHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 12 * time.Second,
+		Transport: &http.Transport{
+			DialContext:           (&net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          8,
+			IdleConnTimeout:       30 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ResponseHeaderTimeout: 10 * time.Second,
+		},
+	}
+}
+
+func resetHTTPClient(old *http.Client) *http.Client {
+	if old != nil {
+		if tr, ok := old.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+	}
+	return newHTTPClient()
+}
+
+func localMiniProbeServerAvailable(client *http.Client) bool {
+	if _, err := os.Stat(localAdminSocket); err != nil {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, localServerEndpoint+"/healthz", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64))
+	return resp.StatusCode == http.StatusOK
+}
+
+func reportEndpoints(configured string, localReady bool) []string {
+	configured = strings.TrimRight(strings.TrimSpace(configured), "/")
+	// A Server-host Agent must not hairpin through public DNS / Cloudflare. Once
+	// the local MiniProbe Server is positively identified and healthy, use only
+	// loopback. This makes recovery independent of external DNS and Tunnel state.
+	if localReady {
+		return []string{localServerEndpoint}
+	}
+	return []string{configured}
+}
+
 func send(client *http.Client, endpoint, token string, r common.Report) (*common.ReportResponse, error) {
 	b, _ := json.Marshal(r)
 	req, err := http.NewRequest(http.MethodPost, endpoint+"/api/v1/report", bytes.NewReader(b))
@@ -278,6 +377,154 @@ func send(client *http.Client, endpoint, token string, r common.Report) (*common
 		}
 	}
 	return &out, nil
+}
+
+func expectedAgentAsset() (string, error) {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "miniprobe-agent-linux-amd64", nil
+	case "arm64":
+		return "miniprobe-agent-linux-arm64", nil
+	case "arm":
+		return "miniprobe-agent-linux-armv7", nil
+	default:
+		return "", fmt.Errorf("unsupported Agent architecture: %s", runtime.GOARCH)
+	}
+}
+
+func verifySignedUpgradePolicy(nodeID string, key ed25519.PublicKey, signed *common.SignedUpgradePolicy) (common.UpgradePolicy, error) {
+	if signed == nil {
+		return common.UpgradePolicy{}, errors.New("upgrade policy is nil")
+	}
+	p := signed.Policy
+	if p.NodeID != nodeID {
+		return common.UpgradePolicy{}, errors.New("upgrade policy node mismatch")
+	}
+	if strings.TrimSpace(p.RequestID) == "" || strings.TrimSpace(p.TargetVersion) == "" {
+		return common.UpgradePolicy{}, errors.New("upgrade policy is incomplete")
+	}
+	expectedAsset, err := expectedAgentAsset()
+	if err != nil {
+		return common.UpgradePolicy{}, err
+	}
+	if p.Asset != expectedAsset {
+		return common.UpgradePolicy{}, fmt.Errorf("upgrade asset mismatch: got %s want %s", p.Asset, expectedAsset)
+	}
+	if len(strings.TrimSpace(p.SHA256)) != 64 {
+		return common.UpgradePolicy{}, errors.New("upgrade SHA256 is invalid")
+	}
+	if p.Size <= 0 || p.Size > maxAgentUpdateBytes {
+		return common.UpgradePolicy{}, errors.New("upgrade asset size is invalid")
+	}
+	sig, err := base64.RawURLEncoding.DecodeString(signed.Signature)
+	if err != nil || len(sig) != ed25519.SignatureSize {
+		return common.UpgradePolicy{}, errors.New("invalid upgrade signature encoding")
+	}
+	payload, _ := json.Marshal(p)
+	if !ed25519.Verify(key, payload, sig) {
+		return common.UpgradePolicy{}, errors.New("invalid upgrade policy signature")
+	}
+	return p, nil
+}
+
+func applySignedUpgradePolicy(client *http.Client, endpoint, token, nodeID string, key ed25519.PublicKey, signed *common.SignedUpgradePolicy, stateFile string) error {
+	p, err := verifySignedUpgradePolicy(nodeID, key, signed)
+	if err != nil {
+		return err
+	}
+	if p.TargetVersion == agentVersion {
+		return nil
+	}
+	if !p.NotBefore.IsZero() && time.Now().UTC().Before(p.NotBefore.UTC()) {
+		return nil
+	}
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return errors.New("upgrade endpoint is empty")
+	}
+	return installAgentUpdate(client, endpoint, token, p, stateFile)
+}
+
+func installAgentUpdate(client *http.Client, endpoint, token string, p common.UpgradePolicy, stateFile string) error {
+	stateDir := filepath.Dir(stateFile)
+	binDir := filepath.Join(stateDir, "bin")
+	if err := os.MkdirAll(binDir, 0700); err != nil {
+		return fmt.Errorf("create update directory: %w", err)
+	}
+	tmp := filepath.Join(binDir, ".miniprobe-agent.new")
+	current := filepath.Join(binDir, "miniprobe-agent")
+	_ = os.Remove(tmp)
+
+	req, err := http.NewRequest(http.MethodGet, endpoint+"/downloads/"+p.Asset, nil)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download Agent update: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download Agent update returned %s", resp.Status)
+	}
+
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0700)
+	if err != nil {
+		return fmt.Errorf("create Agent update: %w", err)
+	}
+	h := sha256.New()
+	n, copyErr := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxAgentUpdateBytes+1))
+	if syncErr := f.Sync(); copyErr == nil && syncErr != nil {
+		copyErr = syncErr
+	}
+	closeErr := f.Close()
+	if copyErr == nil && closeErr != nil {
+		copyErr = closeErr
+	}
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write Agent update: %w", copyErr)
+	}
+	if n > maxAgentUpdateBytes || n != p.Size {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("Agent update size mismatch: got %d want %d", n, p.Size)
+	}
+	gotSHA := fmt.Sprintf("%x", h.Sum(nil))
+	if !strings.EqualFold(gotSHA, p.SHA256) {
+		_ = os.Remove(tmp)
+		return errors.New("Agent update SHA256 mismatch")
+	}
+	if err := os.Chmod(tmp, 0755); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("chmod Agent update: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, tmp, "--version").CombinedOutput()
+	if err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("validate Agent update binary: %w", err)
+	}
+	if gotVersion := strings.TrimSpace(string(out)); gotVersion != p.TargetVersion {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("Agent update version mismatch: got %s want %s", gotVersion, p.TargetVersion)
+	}
+	if err := os.Rename(tmp, current); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("activate Agent update: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "%s MiniProbe Agent upgrading %s -> %s\n", time.Now().Format(time.RFC3339), agentVersion, p.TargetVersion)
+	args := append([]string{current}, os.Args[1:]...)
+	if err := syscall.Exec(current, args, os.Environ()); err != nil {
+		_ = os.Remove(current)
+		return fmt.Errorf("exec updated Agent: %w", err)
+	}
+	return nil
 }
 
 func decodeServerKey(raw string) (ed25519.PublicKey, error) {
@@ -765,6 +1012,10 @@ func probeConfigFromPolicyForFamilies(p common.ProbePolicy, has4, has6 bool) pro
 	// the selected city. Dual-stack nodes keep the established IPv4 city tests.
 	if !has4 && has6 {
 		city, telecom, unicom, mobile = builtInIPv6ProbeTargets()
+		// Field validation showed that carrier IPv6 DNS endpoints answer DNS
+		// reliably but may intentionally drop ICMP Echo. Measure a real UDP/53
+		// DNS request RTT instead of treating blocked ping as line failure.
+		protocol = "udp"
 	} else {
 		if strings.TrimSpace(p.Telecom) != "" {
 			telecom = strings.TrimSpace(p.Telecom)
@@ -804,10 +1055,9 @@ func builtInProbeTargets(region string) (city, telecom, unicom, mobile string) {
 }
 
 func builtInIPv6ProbeTargets() (label, telecom, unicom, mobile string) {
-	// Carrier-wide IPv6 DNS endpoints. These are intentionally not presented as
-	// Beijing/Shanghai/Guangzhou nodes because their routing can be anycast or
-	// provider-wide. The goal is a truthful IPv6 three-carrier reachability/RTT
-	// signal for IPv6-only VPSes, not false city precision.
+	// Carrier-wide IPv6 DNS endpoints verified to answer UDP/53 from an
+	// IPv6-only VPS. They are intentionally not presented as city-specific
+	// targets; the measurement is DNS request RTT, not ICMP Echo RTT.
 	return "IPv6", "240e:4c:4008::1", "2408:8888::8", "2409:8088::a"
 }
 

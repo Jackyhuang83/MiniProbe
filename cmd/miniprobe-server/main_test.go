@@ -2,6 +2,8 @@ package main
 
 import (
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -127,5 +129,32 @@ func TestLongTermExpiryAlias(t *testing.T) {
 func TestExpiryValidationRejectsInvalidDate(t *testing.T) {
 	if _, err := normalizeExpireInput("2036-02-30"); err == nil {
 		t.Fatal("invalid calendar date should be rejected")
+	}
+}
+
+func TestLoadAgentAssetsAndCapability(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"miniprobe-agent-linux-amd64": "amd64-test-binary",
+		"miniprobe-agent-linux-arm64": "arm64-test-binary",
+		"miniprobe-agent-linux-armv7": "armv7-test-binary",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assets := loadAgentAssets(dir)
+	if len(assets) != 3 {
+		t.Fatalf("got %d assets want 3", len(assets))
+	}
+	if assets["amd64"].Name != "miniprobe-agent-linux-amd64" || len(assets["amd64"].SHA256) != 64 {
+		t.Fatalf("unexpected amd64 asset: %+v", assets["amd64"])
+	}
+	if !hasCapability([]string{"other", selfUpdateCapability}, selfUpdateCapability) {
+		t.Fatal("self-update capability not detected")
+	}
+	if hasCapability([]string{"other"}, selfUpdateCapability) {
+		t.Fatal("unexpected self-update capability")
 	}
 }

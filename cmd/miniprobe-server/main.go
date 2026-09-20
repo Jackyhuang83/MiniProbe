@@ -40,17 +40,19 @@ import (
 var assets embed.FS
 
 const (
-	cookieName          = "miniprobe_dashboard"
-	pbkdf2Iters         = 210000
-	databaseVer         = 5
-	defaultListen       = ":28888"
-	defaultAdminSock    = "/run/miniprobe/admin.sock"
-	maxRequestBody      = 1 << 20
-	softNodeLimit       = 15
-	storageHardLimit    = uint64(2 * 1024 * 1024 * 1024)
-	dataFileMaxBytes    = 256 * 1024 * 1024
-	dashboardSessionTTL = 30 * 24 * time.Hour
-	longTermExpireDate  = "2036-01-01"
+	cookieName           = "miniprobe_dashboard"
+	pbkdf2Iters          = 210000
+	databaseVer          = 6
+	serverVersion        = "0.4.9-alpha"
+	selfUpdateCapability = "self-update-v1"
+	defaultListen        = ":28888"
+	defaultAdminSock     = "/run/miniprobe/admin.sock"
+	maxRequestBody       = 1 << 20
+	softNodeLimit        = 15
+	storageHardLimit     = uint64(2 * 1024 * 1024 * 1024)
+	dataFileMaxBytes     = 256 * 1024 * 1024
+	dashboardSessionTTL  = 30 * 24 * time.Hour
+	longTermExpireDate   = "2036-01-01"
 )
 
 const (
@@ -178,6 +180,18 @@ type nodeUpdateInput struct {
 	Tags                  *[]string `json:"tags,omitempty"`
 }
 
+type agentUpgradeRequest struct {
+	RequestID     string    `json:"request_id"`
+	TargetVersion string    `json:"target_version"`
+	RequestedAt   time.Time `json:"requested_at"`
+}
+
+type agentAsset struct {
+	Name   string
+	SHA256 string
+	Size   int64
+}
+
 type notificationState struct {
 	OfflineAlerted  bool      `json:"offline_alerted,omitempty"`
 	OfflineSince    time.Time `json:"offline_since,omitempty"`
@@ -189,12 +203,13 @@ type notificationState struct {
 }
 
 type database struct {
-	Version       int                          `json:"version"`
-	Secret        string                       `json:"secret"`
-	Settings      settings                     `json:"settings"`
-	Nodes         map[string]nodeConfig        `json:"nodes"`
-	States        map[string]common.NodeView   `json:"states"`
-	Notifications map[string]notificationState `json:"notifications,omitempty"`
+	Version       int                            `json:"version"`
+	Secret        string                         `json:"secret"`
+	Settings      settings                       `json:"settings"`
+	Nodes         map[string]nodeConfig          `json:"nodes"`
+	States        map[string]common.NodeView     `json:"states"`
+	Notifications map[string]notificationState   `json:"notifications,omitempty"`
+	AgentUpgrades map[string]agentUpgradeRequest `json:"agent_upgrades,omitempty"`
 }
 
 type loginFailures struct {
@@ -208,6 +223,7 @@ type server struct {
 	dataFile     string
 	downloadsDir string
 	adminSocket  string
+	agentAssets  map[string]agentAsset
 
 	loginMu  sync.Mutex
 	failures map[string]loginFailures
@@ -233,6 +249,8 @@ type adminNodeView struct {
 	ObservedIP            string                 `json:"observed_ip"`
 	AgentVersion          string                 `json:"agent_version"`
 	AgentEndpoint         string                 `json:"agent_endpoint"`
+	Capabilities          []string               `json:"capabilities,omitempty"`
+	UpgradeRequested      bool                   `json:"upgrade_requested"`
 	PolicyVersion         int64                  `json:"policy_version"`
 	Traffic               common.TrafficSnapshot `json:"traffic"`
 }
@@ -266,6 +284,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	s.agentAssets = loadAgentAssets(s.downloadsDir)
 	if created {
 		log.Printf("MiniProbe initialized. Dashboard mode: %s", s.db.Settings.DashboardMode)
 		if generatedDashboardPass != "" {
@@ -329,6 +348,9 @@ func (s *server) loadOrInit(publicURL, dashboardMode, dashboardPassword string) 
 		}
 		if s.db.Notifications == nil {
 			s.db.Notifications = map[string]notificationState{}
+		}
+		if s.db.AgentUpgrades == nil {
+			s.db.AgentUpgrades = map[string]agentUpgradeRequest{}
 		}
 		sec, err := base64.RawURLEncoding.DecodeString(s.db.Secret)
 		if err != nil || len(sec) < 32 {
@@ -432,7 +454,7 @@ func (s *server) loadOrInit(publicURL, dashboardMode, dashboardPassword string) 
 		Settings: settings{PublicURL: publicURL, AccessMode: accessDirect, PolicyVersion: 1, DashboardMode: dashboardMode, DashboardPassword: dashboardHash,
 			ProbeMode: probeModeOn, ProbeRegion: probeRegionGuangzhou, ProbeProtocol: probeProtocolICMP,
 			Telegram: telegramConfig{SummaryHours: 4, OfflineMinutes: 2}},
-		Nodes: map[string]nodeConfig{}, States: map[string]common.NodeView{}, Notifications: map[string]notificationState{},
+		Nodes: map[string]nodeConfig{}, States: map[string]common.NodeView{}, Notifications: map[string]notificationState{}, AgentUpgrades: map[string]agentUpgradeRequest{},
 	}
 	s.secret = sec
 	if err := s.save(); err != nil {
@@ -515,12 +537,16 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	s.db.Notifications[rep.NodeID] = ns
 	policy := s.signedPolicyLocked(cfg)
 	probePolicy := s.signedProbePolicyLocked(cfg)
+	upgradePolicy := s.signedUpgradePolicyLocked(cfg, rep)
+	if req, ok := s.db.AgentUpgrades[rep.NodeID]; ok && rep.AgentVersion == req.TargetVersion {
+		delete(s.db.AgentUpgrades, rep.NodeID)
+	}
 	s.mu.Unlock()
 
 	for _, msg := range messages {
 		s.enqueueNotification(msg)
 	}
-	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy})
+	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy, UpgradePolicy: upgradePolicy})
 }
 
 func (s *server) signedPolicyLocked(cfg nodeConfig) *common.SignedPolicy {
@@ -547,6 +573,72 @@ func (s *server) signedProbePolicyLocked(cfg nodeConfig) *common.SignedProbePoli
 	priv := ed25519.NewKeyFromSeed(s.secret[:ed25519.SeedSize])
 	sig := ed25519.Sign(priv, payload)
 	return &common.SignedProbePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(sig)}
+}
+
+func (s *server) signedUpgradePolicyLocked(cfg nodeConfig, rep common.Report) *common.SignedUpgradePolicy {
+	req, ok := s.db.AgentUpgrades[cfg.ID]
+	if !ok || req.TargetVersion == "" || rep.AgentVersion == req.TargetVersion || !hasCapability(rep.Capabilities, selfUpdateCapability) {
+		return nil
+	}
+	arch := normalizeAgentArch(rep.Info.Arch)
+	asset, ok := s.agentAssets[arch]
+	if !ok {
+		return nil
+	}
+	p := common.UpgradePolicy{
+		RequestID: req.RequestID, NodeID: cfg.ID, TargetVersion: req.TargetVersion,
+		Asset: asset.Name, SHA256: asset.SHA256, Size: asset.Size,
+	}
+	payload, _ := json.Marshal(p)
+	priv := ed25519.NewKeyFromSeed(s.secret[:ed25519.SeedSize])
+	sig := ed25519.Sign(priv, payload)
+	return &common.SignedUpgradePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(sig)}
+}
+
+func normalizeAgentArch(v string) string {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "amd64", "x86_64":
+		return "amd64"
+	case "arm64", "aarch64":
+		return "arm64"
+	case "arm", "armv7", "armv7l":
+		return "armv7"
+	default:
+		return ""
+	}
+}
+
+func hasCapability(caps []string, want string) bool {
+	for _, c := range caps {
+		if strings.TrimSpace(c) == want {
+			return true
+		}
+	}
+	return false
+}
+
+func loadAgentAssets(dir string) map[string]agentAsset {
+	out := map[string]agentAsset{}
+	for arch, name := range map[string]string{
+		"amd64": "miniprobe-agent-linux-amd64",
+		"arm64": "miniprobe-agent-linux-arm64",
+		"armv7": "miniprobe-agent-linux-armv7",
+	} {
+		path := filepath.Join(dir, name)
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		h := sha256.New()
+		n, err := io.Copy(h, io.LimitReader(f, 64<<20))
+		_ = f.Close()
+		if err != nil || n <= 0 {
+			continue
+		}
+		out[arch] = agentAsset{Name: name, SHA256: fmt.Sprintf("%x", h.Sum(nil)), Size: n}
+	}
+	return out
 }
 
 func (s *server) serverPublicKey() string {
@@ -838,6 +930,7 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/config", s.localConfig)
 	mux.HandleFunc("/v1/nodes", s.localNodes)
 	mux.HandleFunc("/v1/node-command", s.localNodeCommand)
+	mux.HandleFunc("/v1/agent-upgrade", s.localAgentUpgrade)
 	mux.HandleFunc("/v1/telegram-test", s.localTelegramTest)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
@@ -1056,13 +1149,14 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 		out := make([]adminNodeView, 0, len(s.db.Nodes))
 		for id, cfg := range s.db.Nodes {
 			v := s.db.States[id]
+			_, upgradeRequested := s.db.AgentUpgrades[id]
 			out = append(out, adminNodeView{
 				ID: id, DisplayName: cfg.DisplayName, MonthlyTrafficLimit: cfg.MonthlyTrafficLimit,
 				TrafficDirection: cfg.TrafficDirection, TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZMinutes: cfg.TrafficResetTZMinutes,
 				ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
 				MonthlyPrice: cfg.MonthlyPrice, Currency: cfg.Currency, ExpireAt: cfg.ExpireAt, Tags: append([]string(nil), cfg.Tags...), CreatedAt: cfg.CreatedAt,
 				Online: !v.LastSeen.IsZero() && now.Sub(v.LastSeen) < 20*time.Second, LastSeen: v.LastSeen, ObservedIP: v.ObservedIP,
-				AgentVersion: v.AgentVersion, AgentEndpoint: v.AgentEndpoint, PolicyVersion: v.PolicyVersion, Traffic: v.Traffic,
+				AgentVersion: v.AgentVersion, AgentEndpoint: v.AgentEndpoint, Capabilities: append([]string(nil), v.Capabilities...), UpgradeRequested: upgradeRequested, PolicyVersion: v.PolicyVersion, Traffic: v.Traffic,
 			})
 		}
 		s.mu.RUnlock()
@@ -1157,6 +1251,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 		delete(s.db.Nodes, id)
 		delete(s.db.States, id)
 		delete(s.db.Notifications, id)
+		delete(s.db.AgentUpgrades, id)
 		s.mu.Unlock()
 		if !ok {
 			http.Error(w, "node not found", http.StatusNotFound)
@@ -1170,6 +1265,79 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *server) localAgentUpgrade(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		NodeIDs []string `json:"node_ids"`
+	}
+	if err := decodeJSON(w, r, &in); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	if len(in.NodeIDs) == 0 {
+		http.Error(w, "node_ids required", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	if s.db.AgentUpgrades == nil {
+		s.db.AgentUpgrades = map[string]agentUpgradeRequest{}
+	}
+	type skippedNode struct {
+		ID     string `json:"id"`
+		Reason string `json:"reason"`
+	}
+	scheduled := make([]string, 0, len(in.NodeIDs))
+	skipped := make([]skippedNode, 0)
+	seen := map[string]bool{}
+	for _, raw := range in.NodeIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, ok := s.db.Nodes[id]; !ok {
+			skipped = append(skipped, skippedNode{ID: id, Reason: "node not found"})
+			continue
+		}
+		v := s.db.States[id]
+		if v.AgentVersion == serverVersion {
+			skipped = append(skipped, skippedNode{ID: id, Reason: "already current"})
+			continue
+		}
+		if !hasCapability(v.Capabilities, selfUpdateCapability) {
+			skipped = append(skipped, skippedNode{ID: id, Reason: "Agent needs one-time manual bootstrap"})
+			continue
+		}
+		arch := normalizeAgentArch(v.Info.Arch)
+		if _, ok := s.agentAssets[arch]; !ok {
+			skipped = append(skipped, skippedNode{ID: id, Reason: "release asset unavailable"})
+			continue
+		}
+		s.db.AgentUpgrades[id] = agentUpgradeRequest{
+			RequestID:     base64.RawURLEncoding.EncodeToString(randomBytes(12)),
+			TargetVersion: serverVersion,
+			RequestedAt:   time.Now().UTC(),
+		}
+		scheduled = append(scheduled, id)
+	}
+	s.mu.Unlock()
+	if len(scheduled) > 0 {
+		if err := s.save(); err != nil {
+			http.Error(w, "save failed", http.StatusInternalServerError)
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"target_version": serverVersion,
+		"scheduled":      scheduled,
+		"skipped":        skipped,
+	})
 }
 
 func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
@@ -1950,6 +2118,7 @@ func runManager(socketPath string) error {
 		fmt.Println(" 9. Telegram 通知")
 		fmt.Println("10. 存储 / 当前设置")
 		fmt.Println("11. 国内线路测试（北京 / 上海 / 广州）")
+		fmt.Println("12. Agent 版本管理 / 集中升级")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")
@@ -1976,6 +2145,8 @@ func runManager(socketPath string) error {
 			manageShowConfig(client)
 		case "11":
 			manageProbeSettings(reader, client)
+		case "12":
+			manageAgentUpgrades(reader, client)
 		case "0", "q", "Q":
 			return nil
 		default:
@@ -2404,6 +2575,98 @@ func manageNodeCommand(r *bufio.Reader, c *localClient, rotate bool) {
 	}
 	fmt.Print("\nAgent 一键安装 / 更新命令：\n\n")
 	fmt.Println(out.InstallCommand)
+}
+
+func manageAgentUpgrades(r *bufio.Reader, c *localClient) {
+	nodes, err := getLocalNodes(c)
+	if err != nil {
+		fmt.Println("读取节点失败:", err)
+		return
+	}
+	if len(nodes) == 0 {
+		fmt.Println("暂无节点。")
+		return
+	}
+	fmt.Printf("\nServer / 目标 Agent 版本：%s\n", serverVersion)
+	fmt.Printf("%-3s %-20s %-16s %-12s\n", "#", "名称", "Agent", "升级状态")
+	eligible := make([]adminNodeView, 0)
+	for i, n := range nodes {
+		status := "最新"
+		switch {
+		case n.AgentVersion == serverVersion:
+			status = "最新"
+		case !hasCapability(n.Capabilities, selfUpdateCapability):
+			status = "需手动一次"
+		case n.UpgradeRequested:
+			status = "升级中"
+		case !n.Online:
+			status = "离线/可排队"
+		default:
+			status = "可集中升级"
+		}
+		if n.AgentVersion != serverVersion && hasCapability(n.Capabilities, selfUpdateCapability) && !n.UpgradeRequested {
+			eligible = append(eligible, n)
+		}
+		fmt.Printf("%-3d %-20s %-16s %-12s\n", i+1, trimRunes(n.DisplayName, 20), trimRunes(n.AgentVersion, 16), status)
+	}
+	fmt.Println()
+	fmt.Println("说明：首次升级到支持集中升级的 Agent 仍需手动安装一次；之后版本可在这里统一升级。")
+	fmt.Println("1. 一键升级全部可升级 Agent")
+	fmt.Println("2. 选择一个节点升级")
+	fmt.Println("0. 返回")
+	switch prompt(r, "请选择: ") {
+	case "1":
+		if len(eligible) == 0 {
+			fmt.Println("当前没有可集中升级的 Agent。")
+			return
+		}
+		if strings.ToUpper(prompt(r, fmt.Sprintf("将为 %d 个 Agent 排队升级到 %s，输入 YES 确认: ", len(eligible), serverVersion))) != "YES" {
+			fmt.Println("已取消。")
+			return
+		}
+		ids := make([]string, 0, len(eligible))
+		for _, n := range eligible {
+			ids = append(ids, n.ID)
+		}
+		queueAgentUpgrades(c, ids)
+	case "2":
+		n, ok := chooseNode(r, c)
+		if !ok {
+			return
+		}
+		if n.AgentVersion == serverVersion {
+			fmt.Println("该节点已经是最新 Agent。")
+			return
+		}
+		if !hasCapability(n.Capabilities, selfUpdateCapability) {
+			fmt.Println("该节点 Agent 尚不支持集中升级；请使用菜单 4 手动更新一次。之后版本即可集中升级。")
+			return
+		}
+		queueAgentUpgrades(c, []string{n.ID})
+	case "0", "":
+		return
+	default:
+		fmt.Println("无效选项。")
+	}
+}
+
+func queueAgentUpgrades(c *localClient, ids []string) {
+	var out struct {
+		TargetVersion string   `json:"target_version"`
+		Scheduled     []string `json:"scheduled"`
+		Skipped       []struct {
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+		} `json:"skipped"`
+	}
+	if err := c.request(http.MethodPost, "/v1/agent-upgrade", map[string]any{"node_ids": ids}, &out); err != nil {
+		fmt.Println("排队失败:", err)
+		return
+	}
+	fmt.Printf("已排队 %d 个 Agent，目标版本 %s。在线节点通常会在数秒内开始升级；离线节点上线后会自动领取。\n", len(out.Scheduled), out.TargetVersion)
+	if len(out.Skipped) > 0 {
+		fmt.Printf("另有 %d 个节点未排队；可重新进入菜单 12 查看状态。\n", len(out.Skipped))
+	}
 }
 
 func manageDeleteNode(r *bufio.Reader, c *localClient) {

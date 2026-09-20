@@ -66,6 +66,7 @@ type Report struct {
 	NodeID        string          `json:"node_id"`
 	AgentVersion  string          `json:"agent_version,omitempty"`
 	AgentEndpoint string          `json:"agent_endpoint,omitempty"`
+	Capabilities  []string        `json:"capabilities,omitempty"`
 	PolicyVersion int64           `json:"policy_version,omitempty"`
 	ProbeRegion   string          `json:"probe_region,omitempty"`
 	ProbeProtocol string          `json:"probe_protocol,omitempty"`
@@ -113,10 +114,29 @@ type SignedPolicy struct {
 	Signature string      `json:"signature"`
 }
 
+// UpgradePolicy is deliberately narrow: it authorizes only replacement of the
+// MiniProbe Agent with a Server-hosted release asset whose digest is signed by
+// the Server. It is not a generic command or arbitrary URL mechanism.
+type UpgradePolicy struct {
+	RequestID     string    `json:"request_id"`
+	NodeID        string    `json:"node_id"`
+	TargetVersion string    `json:"target_version"`
+	Asset         string    `json:"asset"`
+	SHA256        string    `json:"sha256"`
+	Size          int64     `json:"size"`
+	NotBefore     time.Time `json:"not_before,omitempty"`
+}
+
+type SignedUpgradePolicy struct {
+	Policy    UpgradePolicy `json:"policy"`
+	Signature string        `json:"signature"`
+}
+
 type ReportResponse struct {
-	OK          bool               `json:"ok"`
-	Policy      *SignedPolicy      `json:"policy,omitempty"`
-	ProbePolicy *SignedProbePolicy `json:"probe_policy,omitempty"`
+	OK            bool                 `json:"ok"`
+	Policy        *SignedPolicy        `json:"policy,omitempty"`
+	ProbePolicy   *SignedProbePolicy   `json:"probe_policy,omitempty"`
+	UpgradePolicy *SignedUpgradePolicy `json:"upgrade_policy,omitempty"`
 }
 
 type NodeView struct {

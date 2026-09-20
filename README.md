@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.8-alpha`
+当前版本：`v0.4.9-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.8-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.9-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -72,6 +72,8 @@ miniprobe
  8. 安全访问（HTTPS / Cloudflare Tunnel）
  9. Telegram 通知
 10. 存储 / 当前设置
+11. 国内线路测试（北京 / 上海 / 广州）
+12. Agent 版本管理 / 集中升级
  0. 退出
 ------------------------------------------------------------
 ```
@@ -579,9 +581,31 @@ SHA256SUMS
 
 ---
 
-# 12. 当前版本说明
+# 12. Agent 集中升级
 
-`v0.4.8-alpha` 在 v0.4.7-alpha 基础上，收敛网络标签并补齐 IPv6-only 线路探测：
+从 `v0.4.9-alpha` 开始，Agent 支持受限的软件自更新。SSH 登录 Server 后运行：
+
+```bash
+miniprobe
+```
+
+进入：
+
+```text
+12. Agent 版本管理 / 集中升级
+```
+
+可查看每个节点的 Agent 版本和升级状态，并选择“一键升级全部可升级 Agent”或只升级单个节点。Server 只会为版本落后的、已声明 `self-update-v1` 能力的 Agent 下发升级。离线节点也可以排队，重新上线后领取。
+
+安全边界保持不变：集中升级不是远程 Shell。Server 下发的是 Ed25519 签名的固定 `UpgradePolicy`，其中只允许当前节点、当前目标版本、当前 CPU 架构对应的 MiniProbe Agent 文件、SHA256 和大小。Agent 不接受任意命令，不接受任意 URL，也不会写入 `agent.env`。下载完成后还会运行新二进制的 `--version` 自检，全部通过才切换。
+
+需要注意一次性 bootstrap：`v0.4.8-alpha` 及更早 Agent 本身没有自更新代码，因此升级到 `v0.4.9-alpha` 时仍需最后一次逐台执行安装/更新命令。所有节点进入 `v0.4.9-alpha` 后，后续 MiniProbe 版本即可从 Server 统一升级。
+
+---
+
+# 13. 当前版本说明
+
+`v0.4.9-alpha` 是针对实际断网恢复和 IPv6-only 实测结果的可靠性修复版：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -599,17 +623,21 @@ Telegram 掉线 / 恢复 / 流量提醒
 Dashboard 不显示节点公网 IP
 节点名前按名称/标签识别常见国家或地区旗帜
 系统信息显示 Debian / Ubuntu / Alpine 等识别图标
-系统信息行只显示 V4 / V6，不再推断 NAT / IDC / 家宽 / 移动 / 原生 / 广播
-Agent 不再为网络标签调用第三方 IP intelligence / GeoIP / RDAP
-IPv6-only 节点自动使用运营商级 IPv6 DNS 目标，并支持 ICMPv6 / TCPv6 / UDPv6 线路探测
+系统信息行只显示 V4 / V6，不推断 NAT / IDC / 家宽 / 移动 / 原生 / 广播
+Agent 不为网络标签调用第三方 IP intelligence / GeoIP / RDAP
+IPv6-only 节点固定使用三运营商 IPv6 DNS，以 UDP/53 实际 DNS 请求 RTT 测量线路，不再把 ICMP 被屏蔽误判为超时
+IPv4-only / 双栈节点继续沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议
+Server 本机 Agent 检测到本机 MiniProbe Server 后固定走 http://127.0.0.1:28888，上报不再依赖公网 DNS / Cloudflare Tunnel 回环
+一旦确认运行在 Server 主机，本机 Agent 不再回退公网 Endpoint，避免 DNS / Tunnel 故障再次影响自恢复
+Agent 上报网络/DNS失败后重建 HTTP Transport，增强断网恢复能力
+SSH 菜单新增 Agent 版本管理 / 集中升级；支持的 Agent 可在 Server 上一次性排队升级
+集中升级只下发 Ed25519 签名的固定软件更新策略，不提供任意 Shell/远程命令
+Agent 下载 Server 当前 Release 对应架构二进制，校验架构、大小、SHA256 与内置版本后再切换
+旧版本 Agent 首次升级到 v0.4.9-alpha 仍需手动一次；之后版本可集中升级
 月租 / 到期剩余时间进入节点卡片；到期日输入 L/长期可标记为长期续费，Dashboard 显示“长期”
 节点资料支持局部修改：回车保持原值，只保存实际填写项目
 线路质量拆成延迟历史 + 丢包/失败历史两组；右侧百分比按同一 20 轮滚动窗口计算
-线路名包含城市（例如广州联通）
-线路协议可在 SSH 菜单全局选择 ICMP / TCP / UDP
-线路城市可在 SSH 菜单全局选择北京 / 上海 / 广州
-线路区域右上角显示轻量协议标签
-ICMP 回复必须匹配目标源 IP，并为三运营商分配独立 identifier
+线路区域右上角显示实际使用协议；IPv6-only 显示 UDP
 Dashboard 正确登录后信任当前设备 30 天
 Direct HTTP 明确标注为未加密，Dashboard 显示安全警告
 Server 安装器升级时会显式重启正在运行的 systemd 服务
