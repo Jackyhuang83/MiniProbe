@@ -184,21 +184,25 @@ func TestICMPProbeIDsAndReplySourceIsolation(t *testing.T) {
 
 func TestClassifyNetworkTypes(t *testing.T) {
 	cases := []struct {
-		name string
-		v4   []string
-		v6   []string
-		want []string
+		name      string
+		v4        []string
+		v6        []string
+		has4Route bool
+		has6Route bool
+		want      []string
 	}{
-		{name: "public v4", v4: []string{"203.0.113.9"}, want: []string{"V4"}},
-		{name: "private or cgnat v4 is still V4", v4: []string{"10.0.0.2", "100.64.0.9"}, want: []string{"V4"}},
-		{name: "public v6", v6: []string{"2001:db8::9"}, want: []string{"V6"}},
-		{name: "private v4 plus v6", v4: []string{"192.168.1.2"}, v6: []string{"2606:4700::1111"}, want: []string{"V4", "V6"}},
-		{name: "ignore link local", v4: []string{"169.254.10.2"}, v6: []string{"fe80::1"}, want: nil},
-		{name: "ignore private ula", v6: []string{"fc00::1"}, want: nil},
+		{name: "public v4 with route", v4: []string{"203.0.113.9"}, has4Route: true, want: []string{"V4"}},
+		{name: "private or cgnat v4 with route is V4", v4: []string{"10.0.0.2", "100.64.0.9"}, has4Route: true, want: []string{"V4"}},
+		{name: "private v4 without route is not V4", v4: []string{"10.10.10.10"}, has4Route: false, want: nil},
+		{name: "public v6 with route", v6: []string{"2001:db8::9"}, has6Route: true, want: []string{"V6"}},
+		{name: "ipv6 only with unrouted private v4", v4: []string{"10.10.10.10"}, v6: []string{"2606:4700::1111"}, has4Route: false, has6Route: true, want: []string{"V6"}},
+		{name: "dual stack routes", v4: []string{"192.168.1.2"}, v6: []string{"2606:4700::1111"}, has4Route: true, has6Route: true, want: []string{"V4", "V6"}},
+		{name: "ignore link local", v4: []string{"169.254.10.2"}, v6: []string{"fe80::1"}, has4Route: true, has6Route: true, want: nil},
+		{name: "ignore private ula", v6: []string{"fc00::1"}, has6Route: true, want: nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := classifyNetworkTypes(tc.v4, tc.v6)
+			got := classifyNetworkTypesForFamilies(tc.v4, tc.v6, tc.has4Route, tc.has6Route)
 			if len(got) != len(tc.want) {
 				t.Fatalf("got %v want %v", got, tc.want)
 			}

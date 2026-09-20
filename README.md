@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.9-alpha`
+当前版本：`v0.4.10-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.9-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.10-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -605,7 +605,7 @@ miniprobe
 
 # 13. 当前版本说明
 
-`v0.4.9-alpha` 是针对实际断网恢复和 IPv6-only 实测结果的可靠性修复版：
+`v0.4.10-alpha` 是网络地址族识别的 Bugfix 版，并保留 v0.4.9-alpha 的集中升级、断网恢复与 IPv6-only UDP/53 测试：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -624,6 +624,8 @@ Dashboard 不显示节点公网 IP
 节点名前按名称/标签识别常见国家或地区旗帜
 系统信息显示 Debian / Ubuntu / Alpine 等识别图标
 系统信息行只显示 V4 / V6，不推断 NAT / IDC / 家宽 / 移动 / 原生 / 广播
+V4 / V6 按内核实际可用出站路由判断；仅存在 10.x / 172.16-31.x / 192.168.x 等内部 IPv4 地址但没有 IPv4 出站路由时，不再误标为 V4
+三网探测与 Dashboard V4 / V6 标签共用同一套地址族可用性判断，避免 IPv6-only 节点误走 IPv4 三网目标
 Agent 不为网络标签调用第三方 IP intelligence / GeoIP / RDAP
 IPv6-only 节点固定使用三运营商 IPv6 DNS，以 UDP/53 实际 DNS 请求 RTT 测量线路，不再把 ICMP 被屏蔽误判为超时
 IPv4-only / 双栈节点继续沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议

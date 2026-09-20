@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.9-alpha"
+	agentVersion         = "0.4.10-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
@@ -771,14 +771,19 @@ func collectStatic() common.StaticInfo {
 }
 
 func classifyNetworkTypes(v4s, v6s []string) []string {
-	hasV4 := false
-	hasV6 := false
+	has4Route, has6Route := outboundFamilies()
+	return classifyNetworkTypesForFamilies(v4s, v6s, has4Route, has6Route)
+}
+
+func classifyNetworkTypesForFamilies(v4s, v6s []string, has4Route, has6Route bool) []string {
+	hasV4Address := false
+	hasV6Address := false
 	for _, raw := range v4s {
 		ip := net.ParseIP(strings.TrimSpace(raw))
 		if ip == nil || ip.To4() == nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() {
 			continue
 		}
-		hasV4 = true
+		hasV4Address = true
 		break
 	}
 	for _, raw := range v6s {
@@ -786,14 +791,17 @@ func classifyNetworkTypes(v4s, v6s []string) []string {
 		if ip == nil || ip.To4() != nil || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsPrivate() || !ip.IsGlobalUnicast() {
 			continue
 		}
-		hasV6 = true
+		hasV6Address = true
 		break
 	}
 	out := make([]string, 0, 2)
-	if hasV4 {
+	// V4/V6 badges describe usable outbound address families, not merely an
+	// address attached to an interface. A private /32 without an IPv4 route (a
+	// common IPv6-only VPS setup) therefore must not be advertised as V4.
+	if hasV4Address && has4Route {
 		out = append(out, "V4")
 	}
-	if hasV6 {
+	if hasV6Address && has6Route {
 		out = append(out, "V6")
 	}
 	return out
@@ -1360,20 +1368,24 @@ func targetUsableOnHost(target string) bool {
 }
 
 func localFamilies() (bool, bool) {
-	var has4, has6 bool
-	addrs, _ := net.InterfaceAddrs()
-	for _, a := range addrs {
-		ip, _, err := net.ParseCIDR(a.String())
-		if err != nil || ip.IsLoopback() || !ip.IsGlobalUnicast() {
-			continue
-		}
-		if ip.To4() != nil {
-			has4 = true
-		} else if !ip.IsPrivate() {
-			has6 = true
-		}
+	return outboundFamilies()
+}
+
+func outboundFamilies() (bool, bool) {
+	// UDP connect performs a kernel route/source-address lookup but does not send
+	// a packet. This lets MiniProbe answer the question that matters here: can the
+	// host actually route IPv4/IPv6 traffic outward? Merely owning 10.x/172.x/
+	// 192.168.x addresses is not enough to qualify as V4.
+	return outboundFamily("udp4", "1.1.1.1:53"), outboundFamily("udp6", "[2606:4700:4700::1111]:53")
+}
+
+func outboundFamily(network, target string) bool {
+	conn, err := net.DialTimeout(network, target, 300*time.Millisecond)
+	if err != nil {
+		return false
 	}
-	return has4, has6
+	_ = conn.Close()
+	return true
 }
 
 func appendHistories(name string, quality, latency, loss, sent, lost int) ([]int, []int, []int, float64) {
