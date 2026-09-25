@@ -110,28 +110,52 @@ func TestProbeConfigLabelsCityAndProtocol(t *testing.T) {
 	}
 }
 
-func TestProbeConfigIPv6OnlyUsesCarrierIPv6DNS(t *testing.T) {
+func TestProbeConfigIPv6OnlyUsesCarrierWebsiteTCP6(t *testing.T) {
 	p := common.ProbePolicy{
 		Enabled: true, Region: "guangzhou", Protocol: "icmp",
 		Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6",
 	}
 	cfg := probeConfigFromPolicyForFamilies(p, false, true)
-	if cfg.city != "IPv6" || cfg.protocol != "udp" || len(cfg.tasks) != 3 {
+	if cfg.city != "IPv6" || cfg.protocol != "tcp" || len(cfg.tasks) != 3 {
 		t.Fatalf("unexpected IPv6-only cfg: %+v", cfg)
 	}
-	want := []string{"240e:4c:4008::1", "2408:8888::8", "2409:8088::a"}
+	want := []string{"www.189.cn", "www.chinaunicom.com.cn", "www.10086.cn"}
 	for i, task := range cfg.tasks {
-		ip := net.ParseIP(task.target)
-		if ip == nil || ip.To4() != nil {
-			t.Fatalf("IPv6-only target is not IPv6: %+v", task)
-		}
 		if task.target != want[i] {
 			t.Fatalf("IPv6-only target got %s want %s", task.target, want[i])
+		}
+		if task.network != "tcp6" || task.port != "80" {
+			t.Fatalf("IPv6-only task must force tcp6/TCP 80: %+v", task)
 		}
 		if !strings.HasPrefix(task.name, "IPv6") {
 			t.Fatalf("IPv6-only row must not claim city precision: %+v", task)
 		}
 	}
+}
+
+func TestProbeTCPOnceTCP6(t *testing.T) {
+	ln, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	defer ln.Close()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			_ = conn.Close()
+		}
+		close(done)
+	}()
+	ms, ok := probeTCPOnce("::1", "tcp6", port)
+	if !ok || ms < 0 {
+		t.Fatalf("tcp6 probe failed: ok=%v latency=%.3f", ok, ms)
+	}
+	<-done
 }
 
 func TestReportEndpointsUseOnlyLoopbackForServerHost(t *testing.T) {

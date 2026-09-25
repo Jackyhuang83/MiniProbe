@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.10-alpha"
+	agentVersion         = "0.4.11-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
@@ -64,8 +64,10 @@ type probeState struct {
 }
 
 type probeTask struct {
-	name   string
-	target string
+	name    string
+	target  string
+	network string
+	port    string
 }
 
 type probeConfig struct {
@@ -1014,16 +1016,19 @@ func probeConfigFromPolicyForFamilies(p common.ProbePolicy, has4, has6 bool) pro
 	}
 
 	city, telecom, unicom, mobile := builtInProbeTargets(region)
-	// IPv6-only nodes cannot reach the Server's IPv4 city targets. Use stable
-	// carrier-wide IPv6 DNS endpoints instead. We deliberately label these rows
-	// as IPv6 rather than pretending the anycast/provider endpoints are tied to
-	// the selected city. Dual-stack nodes keep the established IPv4 city tests.
+	network, port := "tcp", "53"
+	// IPv6-only nodes cannot reach the Server's IPv4 city targets. Use the
+	// carriers' official public websites instead. Field validation showed that
+	// the previous carrier DNS/UDP endpoints can terminate at very-near anycast
+	// or resolver nodes and therefore report 0-2 ms values that do not represent
+	// the actual carrier path. For IPv6-only nodes we resolve AAAA, force tcp6,
+	// and measure only the TCP/80 connect RTT. No HTTP or TLS transaction is part
+	// of the measurement. Dual-stack nodes keep the established IPv4 city tests.
 	if !has4 && has6 {
 		city, telecom, unicom, mobile = builtInIPv6ProbeTargets()
-		// Field validation showed that carrier IPv6 DNS endpoints answer DNS
-		// reliably but may intentionally drop ICMP Echo. Measure a real UDP/53
-		// DNS request RTT instead of treating blocked ping as line failure.
-		protocol = "udp"
+		protocol = "tcp"
+		network = "tcp6"
+		port = "80"
 	} else {
 		if strings.TrimSpace(p.Telecom) != "" {
 			telecom = strings.TrimSpace(p.Telecom)
@@ -1037,7 +1042,11 @@ func probeConfigFromPolicyForFamilies(p common.ProbePolicy, has4, has6 bool) pro
 	}
 	return probeConfig{
 		enabled: enabled, region: region, city: city, protocol: protocol,
-		tasks: []probeTask{{name: city + "电信", target: telecom}, {name: city + "联通", target: unicom}, {name: city + "移动", target: mobile}},
+		tasks: []probeTask{
+			{name: city + "电信", target: telecom, network: network, port: port},
+			{name: city + "联通", target: unicom, network: network, port: port},
+			{name: city + "移动", target: mobile, network: network, port: port},
+		},
 	}
 }
 
@@ -1047,6 +1056,10 @@ func probeConfigKey(cfg probeConfig) string {
 	for _, t := range cfg.tasks {
 		b.WriteByte('|')
 		b.WriteString(t.target)
+		b.WriteByte('@')
+		b.WriteString(t.network)
+		b.WriteByte(':')
+		b.WriteString(t.port)
 	}
 	return b.String()
 }
@@ -1063,10 +1076,11 @@ func builtInProbeTargets(region string) (city, telecom, unicom, mobile string) {
 }
 
 func builtInIPv6ProbeTargets() (label, telecom, unicom, mobile string) {
-	// Carrier-wide IPv6 DNS endpoints verified to answer UDP/53 from an
-	// IPv6-only VPS. They are intentionally not presented as city-specific
-	// targets; the measurement is DNS request RTT, not ICMP Echo RTT.
-	return "IPv6", "240e:4c:4008::1", "2408:8888::8", "2409:8088::a"
+	// These official carrier domains were field-validated with IPv6-only access.
+	// They are intentionally not presented as city-specific targets because the
+	// websites may use carrier CDN/WAF nodes. probeConfig forces tcp6/TCP 80 and
+	// records only TCP connect RTT; HTTP status and TLS are deliberately ignored.
+	return "IPv6", "www.189.cn", "www.chinaunicom.com.cn", "www.10086.cn"
 }
 
 func runProbes(cfg probeConfig) []common.ProbeResult {
@@ -1076,31 +1090,35 @@ func runProbes(cfg probeConfig) []common.ProbeResult {
 		wg.Add(1)
 		go func(i int, t probeTask) {
 			defer wg.Done()
-			out[i] = probeTarget(cfg.protocol, t.name, t.target)
+			out[i] = probeTarget(cfg.protocol, t)
 		}(i, t)
 	}
 	wg.Wait()
 	return out
 }
 
-func probeTarget(protocol, name, target string) common.ProbeResult {
-	if !targetUsableOnHost(net.JoinHostPort(target, "53")) {
-		return common.ProbeResult{Name: name, Target: target, Available: false, LatencyMS: -1, LossPct: 0}
+func probeTarget(protocol string, task probeTask) common.ProbeResult {
+	port := strings.TrimSpace(task.port)
+	if port == "" {
+		port = "53"
+	}
+	if !targetUsableOnHost(net.JoinHostPort(task.target, port)) {
+		return common.ProbeResult{Name: task.name, Target: task.target, Available: false, LatencyMS: -1, LossPct: 0}
 	}
 	const attempts = 4
 	var ok int
 	var sum float64
-	icmpID := icmpProbeID(name, target)
+	icmpID := icmpProbeID(task.name, task.target)
 	for i := 0; i < attempts; i++ {
 		var ms float64
 		var success bool
 		switch protocol {
 		case "tcp":
-			ms, success = probeTCPOnce(target)
+			ms, success = probeTCPOnce(task.target, task.network, port)
 		case "udp":
-			ms, success = probeUDPOnce(target, uint16((time.Now().UnixNano()+int64(i))&0xffff))
+			ms, success = probeUDPOnce(task.target, uint16((time.Now().UnixNano()+int64(i))&0xffff))
 		default:
-			ms, success = probeICMPOnce(target, icmpID, uint16(i+1))
+			ms, success = probeICMPOnce(task.target, icmpID, uint16(i+1))
 		}
 		if success {
 			ok++
@@ -1119,9 +1137,9 @@ func probeTarget(protocol, name, target string) common.ProbeResult {
 	if batchLossState > quality {
 		quality = batchLossState
 	}
-	key := protocol + "|" + name
+	key := protocol + "|" + task.name
 	hist, latHist, lossHist, rollingLoss := appendHistories(key, quality, latState, batchLossState, attempts, attempts-ok)
-	return common.ProbeResult{Name: name, Target: target, Available: true, LatencyMS: lat, LossPct: rollingLoss, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
+	return common.ProbeResult{Name: task.name, Target: task.target, Available: true, LatencyMS: lat, LossPct: rollingLoss, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
 }
 
 func latencyQuality(lat float64) int {
@@ -1150,12 +1168,48 @@ func lossQuality(loss float64) int {
 	}
 }
 
-func probeTCPOnce(target string) (float64, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 900*time.Millisecond)
+func probeTCPOnce(target, network, port string) (float64, bool) {
+	network = strings.TrimSpace(network)
+	if network == "" {
+		network = "tcp"
+	}
+	port = strings.TrimSpace(port)
+	if port == "" {
+		port = "53"
+	}
+
+	timeout := 900 * time.Millisecond
+	if network == "tcp6" {
+		// The IPv6-only carrier website probes intentionally allow one TCP SYN
+		// retransmission-sized spike to be measured as high latency instead of
+		// immediately converting it into packet loss.
+		timeout = 2 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	d := net.Dialer{Timeout: 900 * time.Millisecond}
+
+	dialTarget := net.JoinHostPort(target, port)
+	// Keep DNS resolution outside the RTT timer. The hostname is only a stable
+	// way to discover the carrier's current IPv6 endpoint; the displayed latency
+	// should represent TCP connect time, not the local resolver's response time.
+	if net.ParseIP(target) == nil {
+		lookupNetwork := "ip"
+		switch network {
+		case "tcp4":
+			lookupNetwork = "ip4"
+		case "tcp6":
+			lookupNetwork = "ip6"
+		}
+		ips, err := net.DefaultResolver.LookupIP(ctx, lookupNetwork, target)
+		if err != nil || len(ips) == 0 {
+			return 0, false
+		}
+		dialTarget = net.JoinHostPort(ips[0].String(), port)
+	}
+
+	d := net.Dialer{Timeout: timeout}
 	start := time.Now()
-	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(target, "53"))
+	conn, err := d.DialContext(ctx, network, dialTarget)
 	if err != nil {
 		return 0, false
 	}

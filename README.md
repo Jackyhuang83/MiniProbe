@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.10-alpha`
+当前版本：`v0.4.11-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.10-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.11-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -133,7 +133,7 @@ http://[2001:db8::10]:28888
 https://probe.example.com
 ```
 
-IPv6-only Agent 会自动改用三大运营商的 IPv6 DNS 目标做线路探测；ICMP / TCP / UDP 均支持 IPv6。Dashboard 行名显示 `IPv6电信 / IPv6联通 / IPv6移动`，不再把 IPv4 目标超时误判成线路故障。
+IPv6-only Agent 会自动改用三大运营商官方站点作为 IPv6 线路端点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 解析 AAAA 后强制使用 `tcp6` 连接 TCP/80，仅统计 TCP connect RTT，不发送 HTTP 请求、不进行 TLS 握手。Dashboard 行名显示 `IPv6电信 / IPv6联通 / IPv6移动`，协议显示 `TCP`。双栈节点仍沿用所选城市的 IPv4 基准。
 
 ---
 
@@ -269,7 +269,7 @@ Agent 当前采集：
 - 国内三网线路延迟 / 失败率（Server 全局选择北京、上海或广州）
 - 探测协议可选 ICMP / TCP / UDP
 - ICMP：Ping RTT + packet loss
-- TCP：TCP/53 connect RTT + connect failure rate
+- TCP：IPv4 城市目标使用 TCP/53 connect RTT；IPv6-only 使用运营商官网 AAAA + tcp6/TCP 80 connect RTT
 - UDP：UDP/53 DNS query RTT + query failure rate
 - Dashboard 分开显示最近 20 次延迟历史与失败/丢包历史（探测约每 10 秒更新一次）
 - 右侧失败率 / 丢包率使用与这 20 个历史块一致的滚动窗口；每轮 4 次探测，因此完整窗口最多统计 80 次尝试
@@ -290,7 +290,7 @@ SSH 执行 `miniprobe`，进入 `11. 国内线路测试` 后可全局选择：
 
 预设目标使用对应城市运营商 DNS 节点；TCP / UDP 使用 53 端口，ICMP 使用 Echo Request。不同协议的“失败率/丢包”语义不同，因此 Dashboard 同时保留协议标签，避免把 TCP/UDP 失败率误读成 ICMP packet loss。
 
-IPv4-only 和双栈 Agent 继续使用所选城市的 IPv4 运营商 DNS 目标。IPv6-only Agent 自动使用运营商级 IPv6 DNS 目标：电信 `240e:4c:4008::1`、联通 `2408:8888::8`、移动 `2409:8088::a`。由于这些 IPv6 目标是运营商级地址，不冒充北京 / 上海 / 广州的城市节点，因此 Dashboard 行名显示 `IPv6电信 / IPv6联通 / IPv6移动`。双栈节点仍优先沿用原有城市 IPv4 测试，避免改变既有基准。
+IPv4-only 和双栈 Agent 继续使用所选城市的 IPv4 运营商 DNS 目标。IPv6-only Agent 自动改用运营商官方站点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 只解析这些域名的 AAAA，并强制通过 `tcp6` 连接 TCP/80；计时从 DNS 解析完成后开始，因此 Dashboard 记录的是 TCP connect RTT，而不是本地 DNS 查询耗时。网站的 HTTP 301/302/403/412 或 TLS 行为不参与线路判定。由于这些站点可能使用运营商 CDN/WAF，不冒充北京 / 上海 / 广州城市节点，Dashboard 行名仍显示 `IPv6电信 / IPv6联通 / IPv6移动`。双栈节点继续沿用原有城市 IPv4 测试，避免改变既有基准。
 
 丢包 / 失败率的显示口径与右侧 20 个历史块一致，不再只显示“最后一轮 4 个包”的瞬时结果。窗口未填满时按已经实际执行的探测次数计算。ICMP 仍按每轮 4 个 Echo Request 统计；TCP / UDP 则对应 4 次连接 / DNS 查询尝试。
 
@@ -605,7 +605,7 @@ miniprobe
 
 # 13. 当前版本说明
 
-`v0.4.10-alpha` 是网络地址族识别的 Bugfix 版，并保留 v0.4.9-alpha 的集中升级、断网恢复与 IPv6-only UDP/53 测试：
+`v0.4.11-alpha` 是 IPv6-only 三网线路探测修正版，并保留 v0.4.10-alpha 的地址族识别修复、集中升级和断网恢复能力：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -627,7 +627,7 @@ Dashboard 不显示节点公网 IP
 V4 / V6 按内核实际可用出站路由判断；仅存在 10.x / 172.16-31.x / 192.168.x 等内部 IPv4 地址但没有 IPv4 出站路由时，不再误标为 V4
 三网探测与 Dashboard V4 / V6 标签共用同一套地址族可用性判断，避免 IPv6-only 节点误走 IPv4 三网目标
 Agent 不为网络标签调用第三方 IP intelligence / GeoIP / RDAP
-IPv6-only 节点固定使用三运营商 IPv6 DNS，以 UDP/53 实际 DNS 请求 RTT 测量线路，不再把 ICMP 被屏蔽误判为超时
+IPv6-only 节点改用三运营商官方站点域名；解析 AAAA 后强制 tcp6/TCP 80，只测 TCP connect RTT，避免运营商 DNS Anycast/近端解析节点导致 0-2 ms 的失真结果
 IPv4-only / 双栈节点继续沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议
 Server 本机 Agent 检测到本机 MiniProbe Server 后固定走 http://127.0.0.1:28888，上报不再依赖公网 DNS / Cloudflare Tunnel 回环
 一旦确认运行在 Server 主机，本机 Agent 不再回退公网 Endpoint，避免 DNS / Tunnel 故障再次影响自恢复
@@ -639,7 +639,7 @@ Agent 下载 Server 当前 Release 对应架构二进制，校验架构、大小
 月租 / 到期剩余时间进入节点卡片；到期日输入 L/长期可标记为长期续费，Dashboard 显示“长期”
 节点资料支持局部修改：回车保持原值，只保存实际填写项目
 线路质量拆成延迟历史 + 丢包/失败历史两组；右侧百分比按同一 20 轮滚动窗口计算
-线路区域右上角显示实际使用协议；IPv6-only 显示 UDP
+线路区域右上角显示实际使用协议；IPv6-only 显示 TCP
 Dashboard 正确登录后信任当前设备 30 天
 Direct HTTP 明确标注为未加密，Dashboard 显示安全警告
 Server 安装器升级时会显式重启正在运行的 systemd 服务

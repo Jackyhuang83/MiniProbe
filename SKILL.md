@@ -4,7 +4,7 @@ version: 1.0
 status: project-skill
 description: Maintain, debug, test, package, release, deploy, and operate the MiniProbe personal VPS monitoring project. Use for MiniProbe architecture decisions, Server/Agent code changes, IPv4/IPv6/NAT behavior, domestic line probing, traffic accounting, Dashboard/Telegram behavior, Agent self-update, GitHub release workflows, production troubleshooting, and step-by-step user operations. Preserve MiniProbe's strict security, storage, compatibility, and simplicity constraints.
 repository: https://github.com/Jackyhuang83/MiniProbe
-baseline: v0.4.10-alpha
+baseline: v0.4.11-alpha
 language: zh-CN
 ---
 
@@ -63,7 +63,7 @@ Agent 负责：
 当前已验证发布基线：
 
 ```text
-v0.4.10-alpha
+v0.4.11-alpha
 ```
 
 当前已经完成并经过实机验证的重要能力：
@@ -81,6 +81,7 @@ v0.4.10-alpha
 - Agent 网络/DNS失败后重建 HTTP Transport。
 - 从 v0.4.9-alpha 起支持 Agent 集中升级。
 - v0.4.10-alpha 修复“私网 IPv4 地址但无 IPv4 出站能力仍被误判 V4”的问题。
+- v0.4.11-alpha 修复 IPv6-only 三网 DNS RTT 失真：改为运营商官网 AAAA + 强制 tcp6/TCP 80 connect RTT。
 
 当前产品策略：
 
@@ -436,23 +437,31 @@ Off
 
 ### 8.1 IPv6-only 当前逻辑
 
-当前 v0.4.10-alpha 使用运营商 IPv6 DNS：
+从 v0.4.11-alpha 起，IPv6-only 不再使用运营商公共 DNS RTT 作为三网线路基准。
+
+当前端点：
 
 ```text
-电信 240e:4c:4008::1
-联通 2408:8888::8
-移动 2409:8088::a
+电信 www.189.cn
+联通 www.chinaunicom.com.cn
+移动 www.10086.cn
 ```
 
-IPv6-only 当前强制使用：
+当前探测方式：
 
 ```text
-UDP/53 DNS request RTT
+解析 AAAA
+-> 强制 tcp6
+-> TCP/80 connect
+-> 仅统计 TCP connect RTT
+-> 立即关闭连接
 ```
 
-原因：这些地址对 DNS 查询稳定响应，但 ICMP Echo 可能被屏蔽。
+不发送 HTTP 请求，不进行 TLS 握手；HTTP 状态码、证书和 TLS renegotiation 均不属于线路健康判定。
 
-Dashboard 行名应显示：
+DNS 解析不计入 RTT。域名只用于跟随运营商官网当前 IPv6/CDN 端点；实际延迟计时从 TCP connect 开始。
+
+Dashboard 行名：
 
 ```text
 IPv6电信
@@ -460,56 +469,35 @@ IPv6联通
 IPv6移动
 ```
 
-不要伪装成北京 / 上海 / 广州城市节点。
-
-### 8.2 当前已知未收口问题
-
-v0.4.10-alpha 实测 IPv6-only 延迟出现长期 `0-2 ms`。
-
-系统 `dig` 实测：
+协议显示：
 
 ```text
-240e:4c:4008::1 -> 8 ms
-2408:8888::8    -> 0 ms
-2409:8088::a    -> 0 ms
+TCP
 ```
 
-`dig` 的 `0 ms` 代表不足 1 ms 的整数显示，不等于真正零延迟。
+不要伪装成北京 / 上海 / 广州城市节点，因为官网可能使用运营商 CDN/WAF，不能声称具体城市精度。
 
-这说明 MiniProbe 当前 UDP/53 计时与系统 DNS 查询大体一致，但这些 DNS 目标的 RTT 不一定能代表“中国三网真实路径延迟”。可能原因包括：
+### 8.2 v0.4.10-alpha 历史问题与修复依据
 
-- Anycast 近端节点。
-- 上游 DNS 透明代理 / 代答。
-- 运营商 DNS 网络拓扑导致极近响应。
+v0.4.10-alpha 曾使用：
 
-目前**不能把该数值解释为真正的跨网路径 RTT**。
-
-下一步如继续修此问题，应先验证测试端点，不要直接再次修改算法。
-
-优先诊断：
-
-```bash
-for s in 240e:4c:4008::1 2408:8888::8 2409:8088::a; do
-  echo "===== $s ====="
-  dig @"$s" www.baidu.com A +tries=1 +time=2 +stats
-  echo
-done
+```text
+电信 240e:4c:4008::1
+联通 2408:8888::8
+移动 2409:8088::a
 ```
 
-如测试 TCP/53，不要先 `grep` 隐藏错误，应保留完整输出：
+并以 UDP/53 DNS query RTT 测量。实机长期出现约 `0-2 ms`；系统 `dig` 也出现 `0 ms`，说明计时算法与系统工具大体一致，但 DNS Anycast、透明代答或网络拓扑使该数值不能代表三网真实路径。
 
-```bash
-for s in 240e:4c:4008::1 2408:8888::8 2409:8088::a; do
-  echo "===== $s TCP ====="
-  timeout 5 dig +tcp @"$s" www.baidu.com A +tries=1 +time=3
-  echo "exit=$?"
-  echo
-done
-```
+经多轮 IPv6 实测后，运营商官网端点的 TCP 建连延迟呈现更合理、可重复的跨网区间；因此 v0.4.11-alpha 改为官网域名 + AAAA + tcp6/TCP 80 connect RTT。
 
-如果 TCP/53 不可用，不要把 IPv6-only 简单改成 TCP/53；应重新寻找可稳定响应、确实能代表运营商路径的 IPv6 测试端点。
+保留原则：
 
-NextTrace 的 IPv6 endpoint 可用于 traceroute，但此前实测并不保证 ICMP Echo 响应，因此不能仅因为“是 NextTrace endpoint”就当成 Ping 测试节点。
+- DNS 只负责发现当前 IPv6 端点，不进入 RTT 计时。
+- TCP 建连成功即视为本次线路探测成功；不依赖 HTTP 200。
+- DNS AAAA 失败、IPv6 无路由、TCP timeout/refused 才按失败统计。
+- 每轮仍执行 4 次尝试，失败率仍按最近 20 轮窗口统计。
+- 双栈节点继续沿用城市 IPv4 基准和用户选择的 ICMP/TCP/UDP 协议，不改变历史口径。
 
 ---
 
@@ -1159,7 +1147,7 @@ Server 本机 Agent 应走 loopback。
 
 确认地址族判定，再确认目标和协议。
 
-IPv6-only 不要先用 ICMP 结果判断目标不可达，因为运营商 DNS 可能屏蔽 Echo。
+IPv6-only 当前固定使用运营商官网 AAAA + tcp6/TCP 80；排障时先检查 AAAA、IPv6 出站路由和 TCP/80，不再使用运营商 DNS RTT 作为线路基准。
 
 ### 18.4 延迟异常低
 
@@ -1473,7 +1461,7 @@ Upgrade notes
 - 为网络标签重新接 IP intelligence API。
 - 把 NAT/IDC/家宽/原生/广播重新放回 UI。
 - 仅因为网卡有私有 IPv4 就显示 V4。
-- 把 IPv6-only DNS RTT 宣称为真实跨网 RTT，除非测试端点已验证。
+- 恢复使用 IPv6-only 公共 DNS RTT 作为真实三网路径基准；v0.4.11-alpha 已改为验证过的运营商官网 tcp6/TCP 80 connect RTT。
 - 把 NextTrace endpoint 自动当成稳定 Ping endpoint。
 - 每个 Server 版本都强制升级 Agent。
 - 覆盖旧 Release / Tag。
