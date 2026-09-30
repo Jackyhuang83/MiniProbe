@@ -29,11 +29,14 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.11-alpha"
+	agentVersion         = "0.4.12-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
 	probeHistoryWindow   = 20
+	routeInterval        = 30 * time.Minute
+	routeMaxHops         = 20
+	routeHopTimeout      = 700 * time.Millisecond
 	networkTypeRefresh   = 5 * time.Minute
 )
 
@@ -161,6 +164,11 @@ func main() {
 	lastProbeAt := time.Time{}
 	lastProbeKey := ""
 	var lastProbes []common.ProbeResult
+	var routeMu sync.RWMutex
+	lastRouteStarted := time.Time{}
+	lastRouteKey := ""
+	lastRouteAt := time.Time{}
+	var lastRoutes []common.RouteResult
 	lastUpgradeRequest := ""
 	lastUpgradeAttempt := time.Time{}
 
@@ -188,8 +196,20 @@ func main() {
 			} else {
 				lastProbes = nil
 			}
-			lastProbeAt = time.Now()
+			lastProbeAt = time.Now().UTC()
 			lastProbeKey = probeKey
+		}
+		if probeCfg.enabled && (probeKey != lastRouteKey || lastRouteStarted.IsZero() || time.Since(lastRouteStarted) >= routeInterval) {
+			lastRouteStarted = time.Now()
+			lastRouteKey = probeKey
+			routeCfg := probeCfg
+			go func() {
+				routes := runRoutes(routeCfg)
+				routeMu.Lock()
+				lastRoutes = routes
+				lastRouteAt = time.Now().UTC()
+				routeMu.Unlock()
+			}()
 		}
 		configuredEndpoint := strings.TrimRight(state.Endpoint, "/")
 		probeProtocol := probeCfg.protocol
@@ -199,9 +219,13 @@ func main() {
 		infoMu.RLock()
 		reportInfo := info
 		infoMu.RUnlock()
+		routeMu.RLock()
+		reportRouteAt := lastRouteAt
+		reportRoutes := append([]common.RouteResult(nil), lastRoutes...)
+		routeMu.RUnlock()
 		rep := common.Report{
 			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: configuredEndpoint, Capabilities: []string{selfUpdateCapability}, PolicyVersion: state.PolicyVersion,
-			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol,
+			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol, ProbeAt: lastProbeAt, RouteAt: reportRouteAt, Routes: reportRoutes,
 			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
 		}
 
@@ -1097,6 +1121,217 @@ func runProbes(cfg probeConfig) []common.ProbeResult {
 	return out
 }
 
+func runRoutes(cfg probeConfig) []common.RouteResult {
+	out := make([]common.RouteResult, len(cfg.tasks))
+	var wg sync.WaitGroup
+	for i, task := range cfg.tasks {
+		wg.Add(1)
+		go func(i int, task probeTask) {
+			defer wg.Done()
+			out[i] = traceRouteTask(task)
+		}(i, task)
+	}
+	wg.Wait()
+	return out
+}
+
+func traceRouteTask(task probeTask) common.RouteResult {
+	result := common.RouteResult{Name: task.name, Target: task.target}
+	ip := net.ParseIP(strings.TrimSpace(task.target))
+	if ip == nil {
+		lookupNetwork := "ip"
+		if task.network == "tcp6" {
+			lookupNetwork = "ip6"
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		ips, err := net.DefaultResolver.LookupIP(ctx, lookupNetwork, task.target)
+		if err != nil || len(ips) == 0 {
+			return result
+		}
+		ip = ips[0]
+	}
+	if ip == nil {
+		return result
+	}
+	result.DestinationIP = ip.String()
+	id := icmpProbeID("route:"+task.name, result.DestinationIP)
+	if ip.To4() != nil {
+		result.Hops = traceICMPv4(ip.To4(), id)
+	} else {
+		result.Hops = traceICMPv6(ip.To16(), id)
+	}
+	result.Available = len(result.Hops) > 0
+	return result
+}
+
+func traceICMPv4(targetIP net.IP, id uint16) []common.RouteHop {
+	conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	var hops []common.RouteHop
+	buf := make([]byte, 1500)
+	for hop := 1; hop <= routeMaxHops; hop++ {
+		if err := setTraceHopLimit(conn, false, hop); err != nil {
+			return hops
+		}
+		seq := uint16(hop)
+		packet := make([]byte, 8+8)
+		packet[0] = 8 // Echo Request
+		binary.BigEndian.PutUint16(packet[4:6], id)
+		binary.BigEndian.PutUint16(packet[6:8], seq)
+		binary.BigEndian.PutUint64(packet[8:16], uint64(time.Now().UnixNano()))
+		binary.BigEndian.PutUint16(packet[2:4], icmpChecksum(packet))
+		_ = conn.SetDeadline(time.Now().Add(routeHopTimeout))
+		if _, err := conn.WriteTo(packet, &net.IPAddr{IP: targetIP}); err != nil {
+			continue
+		}
+		for {
+			n, addr, err := conn.ReadFrom(buf)
+			if err != nil {
+				break
+			}
+			matched, done := traceICMPv4ReplyMatches(buf[:n], id, seq)
+			if !matched {
+				continue
+			}
+			if src, ok := addr.(*net.IPAddr); ok && src.IP != nil {
+				hops = append(hops, common.RouteHop{Hop: hop, IP: src.IP.String()})
+			}
+			if done || (addr != nil && strings.Trim(addr.String(), "[]") == targetIP.String()) {
+				return hops
+			}
+			break
+		}
+	}
+	return hops
+}
+
+func traceICMPv4ReplyMatches(msg []byte, id, seq uint16) (bool, bool) {
+	if len(msg) >= 20 && msg[0]>>4 == 4 {
+		hl := int(msg[0]&0x0f) * 4
+		if hl >= len(msg) {
+			return false, false
+		}
+		msg = msg[hl:]
+	}
+	if len(msg) < 8 {
+		return false, false
+	}
+	switch msg[0] {
+	case 0: // Echo Reply
+		return binary.BigEndian.Uint16(msg[4:6]) == id && binary.BigEndian.Uint16(msg[6:8]) == seq, true
+	case 11: // Time Exceeded
+		inner := msg[8:]
+		if len(inner) < 20 || inner[0]>>4 != 4 {
+			return false, false
+		}
+		hl := int(inner[0]&0x0f) * 4
+		if hl < 20 || len(inner) < hl+8 {
+			return false, false
+		}
+		icmp := inner[hl:]
+		if icmp[0] != 8 {
+			return false, false
+		}
+		return binary.BigEndian.Uint16(icmp[4:6]) == id && binary.BigEndian.Uint16(icmp[6:8]) == seq, false
+	default:
+		return false, false
+	}
+}
+
+func traceICMPv6(targetIP net.IP, id uint16) []common.RouteHop {
+	conn, err := net.ListenPacket("ip6:ipv6-icmp", "::")
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+	var hops []common.RouteHop
+	buf := make([]byte, 1500)
+	for hop := 1; hop <= routeMaxHops; hop++ {
+		if err := setTraceHopLimit(conn, true, hop); err != nil {
+			return hops
+		}
+		seq := uint16(hop)
+		packet := make([]byte, 8+8)
+		packet[0] = 128 // ICMPv6 Echo Request
+		binary.BigEndian.PutUint16(packet[4:6], id)
+		binary.BigEndian.PutUint16(packet[6:8], seq)
+		binary.BigEndian.PutUint64(packet[8:16], uint64(time.Now().UnixNano()))
+		_ = conn.SetDeadline(time.Now().Add(routeHopTimeout))
+		if _, err := conn.WriteTo(packet, &net.IPAddr{IP: targetIP}); err != nil {
+			continue
+		}
+		for {
+			n, addr, err := conn.ReadFrom(buf)
+			if err != nil {
+				break
+			}
+			matched, done := traceICMPv6ReplyMatches(buf[:n], id, seq)
+			if !matched {
+				continue
+			}
+			if src, ok := addr.(*net.IPAddr); ok && src.IP != nil {
+				hops = append(hops, common.RouteHop{Hop: hop, IP: src.IP.String()})
+			}
+			if done {
+				return hops
+			}
+			break
+		}
+	}
+	return hops
+}
+
+func traceICMPv6ReplyMatches(msg []byte, id, seq uint16) (bool, bool) {
+	if len(msg) >= 40 && msg[0]>>4 == 6 {
+		msg = msg[40:]
+	}
+	if len(msg) < 8 {
+		return false, false
+	}
+	switch msg[0] {
+	case 129: // Echo Reply
+		return binary.BigEndian.Uint16(msg[4:6]) == id && binary.BigEndian.Uint16(msg[6:8]) == seq, true
+	case 3: // Time Exceeded
+		inner := msg[8:]
+		if len(inner) < 48 || inner[0]>>4 != 6 {
+			return false, false
+		}
+		icmp := inner[40:]
+		if len(icmp) < 8 || icmp[0] != 128 {
+			return false, false
+		}
+		return binary.BigEndian.Uint16(icmp[4:6]) == id && binary.BigEndian.Uint16(icmp[6:8]) == seq, false
+	default:
+		return false, false
+	}
+}
+
+func setTraceHopLimit(conn net.PacketConn, ipv6 bool, hop int) error {
+	ipConn, ok := conn.(*net.IPConn)
+	if !ok {
+		return errors.New("raw packet connection is not IPConn")
+	}
+	raw, err := ipConn.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var setErr error
+	if err := raw.Control(func(fd uintptr) {
+		if ipv6 {
+			setErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, hop)
+		} else {
+			setErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IP, syscall.IP_TTL, hop)
+		}
+	}); err != nil {
+		return err
+	}
+	return setErr
+}
+
 func probeTarget(protocol string, task probeTask) common.ProbeResult {
 	port := strings.TrimSpace(task.port)
 	if port == "" {
@@ -1139,7 +1374,7 @@ func probeTarget(protocol string, task probeTask) common.ProbeResult {
 	}
 	key := protocol + "|" + task.name
 	hist, latHist, lossHist, rollingLoss := appendHistories(key, quality, latState, batchLossState, attempts, attempts-ok)
-	return common.ProbeResult{Name: task.name, Target: task.target, Available: true, LatencyMS: lat, LossPct: rollingLoss, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
+	return common.ProbeResult{Name: task.name, Target: task.target, Available: true, LatencyMS: lat, LossPct: rollingLoss, SampleSent: attempts, SampleLost: attempts - ok, History: hist, LatencyHistory: latHist, LossHistory: lossHist}
 }
 
 func latencyQuality(lat float64) int {

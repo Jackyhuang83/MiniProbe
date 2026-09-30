@@ -43,7 +43,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.11-alpha"
+	serverVersion        = "0.4.12-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
 	defaultAdminSock     = "/run/miniprobe/admin.sock"
@@ -225,6 +225,20 @@ type server struct {
 	adminSocket  string
 	agentAssets  map[string]agentAsset
 
+	historyDir       string
+	historyMu        sync.Mutex
+	historyAcc       map[string]*historyMinuteAccumulator
+	historyLastProbe map[string]time.Time
+
+	routeMu     sync.RWMutex
+	routeFileMu sync.Mutex
+	routeStates map[string]routeNodeState
+	routeSeen   map[string]time.Time
+	routeCh     chan routeJob
+
+	asnMu    sync.Mutex
+	asnCache map[string]asnCacheEntry
+
 	loginMu  sync.Mutex
 	failures map[string]loginFailures
 	notifyCh chan string
@@ -279,12 +293,15 @@ func main() {
 	s := &server{
 		dataFile: dataFile, downloadsDir: *downloads, adminSocket: *adminSocket,
 		failures: map[string]loginFailures{}, notifyCh: make(chan string, 128),
+		historyDir: filepath.Join(*dataDir, "network-history"), historyAcc: map[string]*historyMinuteAccumulator{}, historyLastProbe: map[string]time.Time{},
+		routeStates: map[string]routeNodeState{}, routeSeen: map[string]time.Time{}, routeCh: make(chan routeJob, 64), asnCache: map[string]asnCacheEntry{},
 	}
 	created, generatedDashboardPass, err := s.loadOrInit(*publicURL, *initDashboardMode, *initDashboardPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
 	s.agentAssets = loadAgentAssets(s.downloadsDir)
+	s.initNetworkHistory()
 	if created {
 		log.Printf("MiniProbe initialized. Dashboard mode: %s", s.db.Settings.DashboardMode)
 		if generatedDashboardPass != "" {
@@ -302,6 +319,8 @@ func main() {
 	go s.notificationLoop()
 	go s.offlineMonitorLoop()
 	go s.trafficSummaryLoop()
+	go s.networkHistoryLoop()
+	go s.routeWorker()
 
 	if err := s.startAdminSocket(); err != nil {
 		log.Fatal(err)
@@ -310,6 +329,7 @@ func main() {
 	publicMux := http.NewServeMux()
 	publicMux.HandleFunc("/api/v1/report", s.report)
 	publicMux.HandleFunc("/api/v1/nodes", s.dashboardOnly(s.nodesAPI))
+	publicMux.HandleFunc("/api/v1/network/history", s.dashboardOnly(s.networkHistoryAPI))
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
@@ -495,8 +515,12 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	previous := s.db.States[rep.NodeID]
+	storedReport := rep
+	// Raw traceroute hop IPs are transient input for Server-side ASN mapping.
+	// Never persist them in the main database or expose them through nodesAPI.
+	storedReport.Routes = nil
 	nv := common.NodeView{
-		Report: rep, DisplayName: cfg.DisplayName, Online: true, ObservedIP: remoteIP(r.RemoteAddr), LastSeen: now,
+		Report: storedReport, DisplayName: cfg.DisplayName, Online: true, ObservedIP: remoteIP(r.RemoteAddr), LastSeen: now,
 		MonthlyTrafficLimit: cfg.MonthlyTrafficLimit, TrafficDirection: cfg.TrafficDirection,
 		TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZ: formatTZOffset(cfg.TrafficResetTZMinutes),
 		ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
@@ -543,6 +567,8 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
+	s.ingestProbeSample(rep.NodeID, rep.ProbeAt, rep.ProbeProtocol, rep.Probes)
+	s.enqueueRouteSnapshot(rep.NodeID, rep.RouteAt, rep.Routes)
 	for _, msg := range messages {
 		s.enqueueNotification(msg)
 	}
@@ -678,6 +704,7 @@ func (s *server) nodesAPI(w http.ResponseWriter, r *http.Request) {
 		// API must not expose node public IPs (especially in Public mode).
 		v.ObservedIP = ""
 		v.Online = !v.LastSeen.IsZero() && now.Sub(v.LastSeen) < 20*time.Second
+		v.RouteStatus, v.RouteChangedCount, v.RouteLastChecked = s.routeSummary(id)
 		out = append(out, v)
 	}
 	s.mu.RUnlock()
@@ -931,6 +958,7 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/nodes", s.localNodes)
 	mux.HandleFunc("/v1/node-command", s.localNodeCommand)
 	mux.HandleFunc("/v1/agent-upgrade", s.localAgentUpgrade)
+	mux.HandleFunc("/v1/route-baseline", s.localRouteBaseline)
 	mux.HandleFunc("/v1/telegram-test", s.localTelegramTest)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
@@ -1129,6 +1157,33 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *server) localRouteBaseline(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		NodeID string `json:"node_id"`
+	}
+	if err := decodeJSON(w, r, &in); err != nil {
+		http.Error(w, "bad json", http.StatusBadRequest)
+		return
+	}
+	nodeID := strings.TrimSpace(in.NodeID)
+	s.mu.RLock()
+	_, ok := s.db.Nodes[nodeID]
+	s.mu.RUnlock()
+	if !ok {
+		http.Error(w, "node not found", http.StatusNotFound)
+		return
+	}
+	if err := s.resetRouteBaseline(nodeID); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 func (s *server) localTelegramTest(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1257,6 +1312,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "node not found", http.StatusNotFound)
 			return
 		}
+		s.removeNetworkHistory(id)
 		if err := s.save(); err != nil {
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
@@ -2967,6 +3023,7 @@ func manageProbeSettings(r *bufio.Reader, c *localClient) {
 		} else {
 			fmt.Println("3. 关闭线路测试")
 		}
+		fmt.Println("4. 重置节点线路基准（使用当前 ASN 路径）")
 		fmt.Println("0. 返回")
 		switch prompt(r, "请选择: ") {
 		case "1":
@@ -3006,6 +3063,30 @@ func manageProbeSettings(r *bufio.Reader, c *localClient) {
 				fmt.Println("线路测试已开启。")
 			} else {
 				fmt.Println("线路测试已关闭。")
+			}
+		case "4":
+			nodes, err := getLocalNodes(c)
+			if err != nil || len(nodes) == 0 {
+				fmt.Println("当前没有可选节点。")
+				continue
+			}
+			for i, n := range nodes {
+				fmt.Printf(" %d. %s (%s)\n", i+1, n.DisplayName, n.ID)
+			}
+			idx, err := strconv.Atoi(prompt(r, "请选择节点编号: "))
+			if err != nil || idx < 1 || idx > len(nodes) {
+				fmt.Println("无效选项。")
+				continue
+			}
+			n := nodes[idx-1]
+			if strings.ToUpper(prompt(r, fmt.Sprintf("将 %s 当前 ASN 路径设为新基准，输入 YES 确认: ", n.DisplayName))) != "YES" {
+				fmt.Println("已取消。")
+				continue
+			}
+			if err := c.request(http.MethodPost, "/v1/route-baseline", map[string]any{"node_id": n.ID}, nil); err != nil {
+				fmt.Println("重置失败:", err)
+			} else {
+				fmt.Println("线路基准已更新为该节点当前 ASN 路径。")
 			}
 		case "0":
 			return

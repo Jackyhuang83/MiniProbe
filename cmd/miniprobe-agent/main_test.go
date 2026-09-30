@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -299,5 +300,51 @@ func TestSignedUpgradePolicyIsNarrowAndVerified(t *testing.T) {
 	wrongSigned := &common.SignedUpgradePolicy{Policy: wrongAsset, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, b))}
 	if _, err := verifySignedUpgradePolicy("node-1", pub, wrongSigned); err == nil {
 		t.Fatal("upgrade policy must not authorize an arbitrary asset")
+	}
+}
+
+func TestTraceICMPv4ReplyMatching(t *testing.T) {
+	const id, seq = uint16(0x1234), uint16(7)
+	echo := make([]byte, 8)
+	echo[0] = 0
+	binary.BigEndian.PutUint16(echo[4:6], id)
+	binary.BigEndian.PutUint16(echo[6:8], seq)
+	if matched, done := traceICMPv4ReplyMatches(echo, id, seq); !matched || !done {
+		t.Fatalf("echo reply match=%v done=%v", matched, done)
+	}
+
+	msg := make([]byte, 8+20+8)
+	msg[0] = 11 // Time Exceeded
+	inner := msg[8:]
+	inner[0] = 0x45
+	innerICMP := inner[20:]
+	innerICMP[0] = 8
+	binary.BigEndian.PutUint16(innerICMP[4:6], id)
+	binary.BigEndian.PutUint16(innerICMP[6:8], seq)
+	if matched, done := traceICMPv4ReplyMatches(msg, id, seq); !matched || done {
+		t.Fatalf("time exceeded match=%v done=%v", matched, done)
+	}
+}
+
+func TestTraceICMPv6ReplyMatching(t *testing.T) {
+	const id, seq = uint16(0x2345), uint16(9)
+	echo := make([]byte, 8)
+	echo[0] = 129
+	binary.BigEndian.PutUint16(echo[4:6], id)
+	binary.BigEndian.PutUint16(echo[6:8], seq)
+	if matched, done := traceICMPv6ReplyMatches(echo, id, seq); !matched || !done {
+		t.Fatalf("echo reply match=%v done=%v", matched, done)
+	}
+
+	msg := make([]byte, 8+40+8)
+	msg[0] = 3 // Time Exceeded
+	inner := msg[8:]
+	inner[0] = 0x60
+	innerICMP := inner[40:]
+	innerICMP[0] = 128
+	binary.BigEndian.PutUint16(innerICMP[4:6], id)
+	binary.BigEndian.PutUint16(innerICMP[6:8], seq)
+	if matched, done := traceICMPv6ReplyMatches(msg, id, seq); !matched || done {
+		t.Fatalf("time exceeded match=%v done=%v", matched, done)
 	}
 }

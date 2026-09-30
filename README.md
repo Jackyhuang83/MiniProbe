@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.11-alpha`
+当前版本：`v0.4.12-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.11-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.12-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -293,6 +293,44 @@ SSH 执行 `miniprobe`，进入 `11. 国内线路测试` 后可全局选择：
 IPv4-only 和双栈 Agent 继续使用所选城市的 IPv4 运营商 DNS 目标。IPv6-only Agent 自动改用运营商官方站点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 只解析这些域名的 AAAA，并强制通过 `tcp6` 连接 TCP/80；计时从 DNS 解析完成后开始，因此 Dashboard 记录的是 TCP connect RTT，而不是本地 DNS 查询耗时。网站的 HTTP 301/302/403/412 或 TLS 行为不参与线路判定。由于这些站点可能使用运营商 CDN/WAF，不冒充北京 / 上海 / 广州城市节点，Dashboard 行名仍显示 `IPv6电信 / IPv6联通 / IPv6移动`。双栈节点继续沿用原有城市 IPv4 测试，避免改变既有基准。
 
 丢包 / 失败率的显示口径与右侧 20 个历史块一致，不再只显示“最后一轮 4 个包”的瞬时结果。窗口未填满时按已经实际执行的探测次数计算。ICMP 仍按每轮 4 个 Echo Request 统计；TCP / UDP 则对应 4 次连接 / DNS 查询尝试。
+
+## 线路详情 / 长期趋势
+
+从 `v0.4.12-alpha` 起，主 Dashboard 仍保持紧凑，只在线路区域下方增加“线路状态 / 查看线路详情”。点击后进入独立线路详情页，不把大型折线图塞进节点卡片。
+
+线路历史由 Server 单独保存，不写入主 `miniprobe.json` 高频状态数据库：
+
+```text
+最近一天：1 分钟粒度
+最近一周：5 分钟聚合
+最近一月：30 分钟聚合
+原始历史：最多保留 31 天
+线路历史硬上限：256 MiB
+```
+
+Agent 仍约每 10 秒执行一次三网探测。Server 对同一分钟内的新探测轮次去重并聚合后，只追加一条分钟记录，因此不会把每 2 秒 Agent 上报永久落盘。正常 15 节点规模下，30 天线路数据保持在 MiniProbe 的 2 GiB 总存储预算之内；达到线路历史硬上限时优先删除最旧的日文件。
+
+线路详情同时支持 ASN 路由基准：
+
+```text
+Agent 约每 30 分钟执行一次 ICMP traceroute
+-> 仅把本次原始 hop 临时上报给自己的 MiniProbe Server
+-> Server 对公开 hop 做 IP -> ASN 映射
+-> 只持久化 Hop 编号 + ASN 路径
+-> 原始 hop IP 不写入主数据库、线路历史或 Dashboard
+```
+
+ASN 映射由 Server 使用 Team Cymru 的 DNS IP-to-ASN 社区服务完成，只用于线路路由识别，不用于 GeoIP、节点位置或网络标签判断。ASN 路径第一次成功采集时自动建立基准；出现不同路径时必须连续两次确认才标记“路由变化”，避免单次 traceroute 丢跳造成误报。最近最多保留 50 条“变化确认 / 恢复基准”事件，并在对应运营商的长期 RTT 图上标出事件时间，便于判断路由变化是否伴随延迟变化。
+
+Dashboard 仍然只读。如果确实需要把当前 ASN 路径重新设为基准，只能通过 Server SSH：
+
+```text
+miniprobe
+-> 11. 国内线路测试
+-> 4. 重置节点线路基准（使用当前 ASN 路径）
+```
+
+如果 VPS / 容器环境不允许 raw ICMP，常规 RTT/失败率探测仍继续工作；该节点的 ASN 路由区域会显示暂不可用，不会把路由功能失败误判成节点离线。
 
 ## IP 地址族标签
 
@@ -605,7 +643,7 @@ miniprobe
 
 # 13. 当前版本说明
 
-`v0.4.11-alpha` 是 IPv6-only 三网线路探测修正版，并保留 v0.4.10-alpha 的地址族识别修复、集中升级和断网恢复能力：
+`v0.4.12-alpha` 增加轻量线路历史与 ASN 路由详情页，并保留 v0.4.11-alpha 的 IPv6-only 三网 TCP 探测修复：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -628,6 +666,13 @@ V4 / V6 按内核实际可用出站路由判断；仅存在 10.x / 172.16-31.x /
 三网探测与 Dashboard V4 / V6 标签共用同一套地址族可用性判断，避免 IPv6-only 节点误走 IPv4 三网目标
 Agent 不为网络标签调用第三方 IP intelligence / GeoIP / RDAP
 IPv6-only 节点改用三运营商官方站点域名；解析 AAAA 后强制 tcp6/TCP 80，只测 TCP connect RTT，避免运营商 DNS Anycast/近端解析节点导致 0-2 ms 的失真结果
+主 Dashboard 保持紧凑，只新增线路状态与“查看线路详情”入口
+线路详情页提供最近一天 / 一周 / 一月 RTT 与失败率曲线
+Server 以分钟聚合追加线路历史，原始历史保留 31 天并设置 256 MiB 独立硬上限
+Agent 约每 30 分钟执行一次轻量 ICMP traceroute，Server 集中做 ASN 映射
+ASN 路由变化需连续两次确认；最多保留 50 条变化/恢复事件，并在 RTT 曲线上标记
+原始 traceroute hop IP 只在 Agent -> Server 处理过程中短暂存在，不写入主数据库、线路历史或 Dashboard
+线路基准只能通过 SSH 菜单 11 重置，Dashboard 继续保持只读
 IPv4-only / 双栈节点继续沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议
 Server 本机 Agent 检测到本机 MiniProbe Server 后固定走 http://127.0.0.1:28888，上报不再依赖公网 DNS / Cloudflare Tunnel 回环
 一旦确认运行在 Server 主机，本机 Agent 不再回退公网 Endpoint，避免 DNS / Tunnel 故障再次影响自恢复

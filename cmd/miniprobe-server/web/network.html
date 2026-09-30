@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MiniProbe · 线路详情</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <section id="networkView" class="hidden">
+    <header class="network-header">
+      <div class="network-heading">
+        <a class="back-link" href="/">‹ Dashboard</a>
+        <span class="brand">线路详情</span>
+        <span id="nodeName" class="sub"></span>
+      </div>
+      <div class="header-actions">
+        <span id="networkStatus" class="route-state collecting">采集中</span>
+      </div>
+    </header>
+    <main class="network-main">
+      <div id="networkError" class="warning-banner security-warning hidden"></div>
+      <section class="network-toolbar">
+        <div>
+          <div class="network-title">网络延迟与失败率</div>
+          <div id="rangeHint" class="small">每分钟采样，长期数据自动限额保存</div>
+        </div>
+        <div class="range-tabs" role="tablist" aria-label="时间范围">
+          <button class="range-btn active" data-range="day" type="button">最近一天</button>
+          <button class="range-btn" data-range="week" type="button">最近一周</button>
+          <button class="range-btn" data-range="month" type="button">最近一月</button>
+        </div>
+      </section>
+      <section id="seriesGrid" class="series-grid"></section>
+
+      <section class="route-section">
+        <div class="route-section-head">
+          <div>
+            <div class="network-title">ASN 路由路径</div>
+            <div id="routeMeta" class="small">约每 30 分钟检测；路径变化需连续两次确认</div>
+          </div>
+          <div class="small route-admin-note">重置基准：SSH → miniprobe → 11 → 4</div>
+        </div>
+        <div id="routeGrid" class="route-detail-grid"></div>
+        <div id="routeEvents" class="route-events"></div>
+        <div id="asnSource" class="small asn-source"></div>
+      </section>
+    </main>
+  </section>
+
+  <section id="networkLoading" class="login-wrap">
+    <div class="login-card compact-card">
+      <div class="login-brand">MiniProbe</div>
+      <div class="login-sub">正在读取线路历史…</div>
+    </div>
+  </section>
+  <script src="/network.js"></script>
+</body>
+</html>

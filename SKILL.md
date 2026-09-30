@@ -4,7 +4,7 @@ version: 1.0
 status: project-skill
 description: Maintain, debug, test, package, release, deploy, and operate the MiniProbe personal VPS monitoring project. Use for MiniProbe architecture decisions, Server/Agent code changes, IPv4/IPv6/NAT behavior, domestic line probing, traffic accounting, Dashboard/Telegram behavior, Agent self-update, GitHub release workflows, production troubleshooting, and step-by-step user operations. Preserve MiniProbe's strict security, storage, compatibility, and simplicity constraints.
 repository: https://github.com/Jackyhuang83/MiniProbe
-baseline: v0.4.11-alpha
+baseline: v0.4.12-alpha
 language: zh-CN
 ---
 
@@ -60,10 +60,10 @@ Agent 负责：
 
 ## 2. 当前基线
 
-当前已验证发布基线：
+当前开发 / 发布目标基线：
 
 ```text
-v0.4.11-alpha
+v0.4.12-alpha
 ```
 
 当前已经完成并经过实机验证的重要能力：
@@ -82,6 +82,7 @@ v0.4.11-alpha
 - 从 v0.4.9-alpha 起支持 Agent 集中升级。
 - v0.4.10-alpha 修复“私网 IPv4 地址但无 IPv4 出站能力仍被误判 V4”的问题。
 - v0.4.11-alpha 修复 IPv6-only 三网 DNS RTT 失真：改为运营商官网 AAAA + 强制 tcp6/TCP 80 connect RTT。
+- v0.4.12-alpha 增加独立线路详情页、31 天有界线路历史、ASN 路由基准/变化确认以及路由事件与 RTT 曲线关联。
 
 当前产品策略：
 
@@ -498,6 +499,41 @@ v0.4.10-alpha 曾使用：
 - DNS AAAA 失败、IPv6 无路由、TCP timeout/refused 才按失败统计。
 - 每轮仍执行 4 次尝试，失败率仍按最近 20 轮窗口统计。
 - 双栈节点继续沿用城市 IPv4 基准和用户选择的 ICMP/TCP/UDP 协议，不改变历史口径。
+
+### 8.3 长期线路历史与 ASN 路由
+
+从 v0.4.12-alpha 起，长期线路数据必须与主状态数据库分离。禁止把每 2 秒 Agent Report 或大量历史点持续写入 `miniprobe.json`。
+
+固定设计：
+
+```text
+Agent probe: ~10 秒/轮
+Server history: 1 分钟聚合后追加
+24h: 1 分钟粒度
+7d: 查询时聚合为 5 分钟
+30d: 查询时聚合为 30 分钟
+原始历史保留: 31 天
+线路历史硬上限: 256 MiB
+```
+
+路由监控：
+
+```text
+Agent: ~30 分钟执行轻量 ICMP traceroute
+Server: 对公开 hop 集中做 ASN 映射
+连续 2 次同一偏离路径 -> 确认变化
+最近事件最多 50 条
+```
+
+隐私边界：
+
+- Agent 不调用第三方 IP intelligence / GeoIP。
+- ASN 映射只在 Server 端使用 Team Cymru DNS IP-to-ASN 服务。
+- raw traceroute hop IP 只允许作为瞬时处理输入，不得写入 `miniprobe.json`、长期历史、route state 或 Dashboard API。
+- 持久化只保留 Hop 编号和 ASN。
+- Dashboard 仍为只读，线路基准重置只能通过本机 SSH 菜单。
+
+主 Dashboard 不放大型图表。详细 24h / 7d / 30d 曲线和 ASN 路由必须放在独立线路详情页，保持 15 节点总览紧凑。
 
 ---
 
@@ -1341,6 +1377,7 @@ Bugfix 优先采用小版本递增，例如：
 ```text
 v0.4.10-alpha
 -> v0.4.11-alpha
+-> v0.4.12-alpha
 ```
 
 不要覆盖已发布 Tag。

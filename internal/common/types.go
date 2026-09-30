@@ -8,9 +8,24 @@ type ProbeResult struct {
 	Target         string  `json:"target"`
 	LatencyMS      float64 `json:"latency_ms"`
 	LossPct        float64 `json:"loss_pct"`
+	SampleSent     int     `json:"sample_sent,omitempty"`
+	SampleLost     int     `json:"sample_lost,omitempty"`
 	History        []int   `json:"history"`                   // backward-compatible combined quality history
 	LatencyHistory []int   `json:"latency_history,omitempty"` // 0=good 1=warn 2=bad 3=timeout
 	LossHistory    []int   `json:"loss_history,omitempty"`    // 0=0% 1=minor 2=major 3=100%
+}
+
+type RouteHop struct {
+	Hop int    `json:"hop"`
+	IP  string `json:"ip"`
+}
+
+type RouteResult struct {
+	Name          string     `json:"name"`
+	Target        string     `json:"target"`
+	DestinationIP string     `json:"destination_ip,omitempty"`
+	Available     bool       `json:"available"`
+	Hops          []RouteHop `json:"hops,omitempty"`
 }
 
 type StaticInfo struct {
@@ -70,6 +85,9 @@ type Report struct {
 	PolicyVersion int64           `json:"policy_version,omitempty"`
 	ProbeRegion   string          `json:"probe_region,omitempty"`
 	ProbeProtocol string          `json:"probe_protocol,omitempty"`
+	ProbeAt       time.Time       `json:"probe_at,omitempty"`
+	RouteAt       time.Time       `json:"route_at,omitempty"`
+	Routes        []RouteResult   `json:"routes,omitempty"`
 	Info          StaticInfo      `json:"info"`
 	Metrics       Metrics         `json:"metrics"`
 	Traffic       TrafficSnapshot `json:"traffic"`
@@ -155,4 +173,7 @@ type NodeView struct {
 	Currency            string    `json:"currency"`
 	ExpireAt            string    `json:"expire_at"`
 	Tags                []string  `json:"tags"`
+	RouteStatus         string    `json:"route_status,omitempty"`
+	RouteChangedCount   int       `json:"route_changed_count,omitempty"`
+	RouteLastChecked    time.Time `json:"route_last_checked,omitempty"`
 }

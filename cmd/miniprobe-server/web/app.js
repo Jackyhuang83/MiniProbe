@@ -162,9 +162,18 @@ function miniBox(label,body,klass=''){
   return `<div class="mini-box ${klass}"><div class="mini-label">${label}</div><div class="mini-body">${body}</div></div>`;
 }
 
+function routeStatus(n){
+  const s=String(n.route_status||'collecting');
+  if(s==='changed') return {cls:'changed',text:`⚠ ${Number(n.route_changed_count||0)||1} 条路由变化`};
+  if(s==='checking') return {cls:'checking',text:'线路变化确认中'};
+  if(s==='normal') return {cls:'normal',text:'线路正常'};
+  if(s==='unavailable') return {cls:'unavailable',text:'路由暂不可用'};
+  return {cls:'collecting',text:'线路基准采集中'};
+}
+
 function card(n){
   const m=n.metrics||{},i=n.info||{},t=n.traffic||{},os=osIdentity(i.os),exp=expiryInfo(n.expire_at),price=priceText(n),region=regionCode(n);
-  const name=n.display_name||n.node_id;
+  const name=n.display_name||n.node_id,route=routeStatus(n);
   const probeProtocol=String(n.probe_protocol||'').toUpperCase();
   const tagHtml=(n.tags||[]).filter(x=>String(x).toUpperCase()!==region).map(x=>`<span class="tag">${esc(x)}</span>`).join('');
   const planBody=(exp.text||price)?`<span class="plan-primary ${exp.days!==null&&exp.days<=7?'urgent':''}">${esc(exp.text||'未设置到期')}</span><span>${esc(price||'未设置价格')}</span>`:`<span class="plan-primary">未设置</span>`;
@@ -196,6 +205,7 @@ function card(n){
       ${probeProtocol==='OFF'?'<div class="small waiting">线路测试已关闭</div>':((n.probes||[]).map(probe).join('')||'<div class="small waiting">等待线路探测数据…</div>')}
     </div>
 
+    <div class="route-strip"><span class="route-state ${route.cls}">${route.text}</span><a class="route-link" href="/network.html?id=${encodeURIComponent(n.node_id)}">查看线路详情 ›</a></div>
     ${tagHtml?`<div class="footer">${tagHtml}</div>`:''}
   </article>`;
 }
