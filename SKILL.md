@@ -4,7 +4,7 @@ version: 1.0
 status: project-skill
 description: Maintain, debug, test, package, release, deploy, and operate the MiniProbe personal VPS monitoring project. Use for MiniProbe architecture decisions, Server/Agent code changes, IPv4/IPv6/NAT behavior, domestic line probing, traffic accounting, Dashboard/Telegram behavior, Agent self-update, GitHub release workflows, production troubleshooting, and step-by-step user operations. Preserve MiniProbe's strict security, storage, compatibility, and simplicity constraints.
 repository: https://github.com/Jackyhuang83/MiniProbe
-baseline: v0.4.16-alpha
+baseline: v0.4.16
 language: zh-CN
 ---
 
@@ -63,7 +63,7 @@ Agent 负责：
 当前开发 / 发布目标基线：
 
 ```text
-v0.4.13-alpha
+v0.4.16
 ```
 
 当前已经完成并经过实机验证的重要能力：
@@ -85,6 +85,7 @@ v0.4.13-alpha
 - v0.4.12-alpha 增加独立线路详情页、31 天有界线路历史、ASN 路由基准/变化确认以及路由事件与 RTT 曲线关联。
 - v0.4.13-alpha 增加 ASN 路径可读线路标签：CN2 / 163、CUII / 9929 / 4837、CMIN2 / CMI / CMNET；仅依据实际关键 ASN 命中，不猜测 GIA 等产品等级。Server 与 Agent 版本从本版起允许独立推进，当前目标 Agent 仍为 v0.4.12-alpha。
 - v0.4.14-alpha 首次加入 Query String 版本缓存键；v0.4.15-alpha 进一步改为 `/ui/<Server版本>/...` 版本化路径，避免 Cloudflare 忽略 Query String 时继续命中旧 Dashboard；v0.4.16-alpha 修复版本化 UI 根路径被内部改写为 `/index.html` 后触发 Go `FileServer` 规范化重定向、形成循环的问题。Dashboard Session 返回 Server 版本供旧 UI 自动跳转；纯 Server/UI 更新不要求 Agent 升级。
+- v0.4.16 为经实机验证后的正式版收口，不新增功能；Server/UI 采用稳定版本号，目标 Agent 继续保持 v0.4.12-alpha，避免仅为改版本标签而重复升级 Agent。
 
 当前产品策略：
 
@@ -1383,6 +1384,7 @@ v0.4.10-alpha
 -> v0.4.14-alpha
 -> v0.4.15-alpha
 -> v0.4.16-alpha
+-> v0.4.16
 ```
 
 不要覆盖已发布 Tag。
