@@ -16,6 +16,35 @@ function statusInfo(s,count=0){
   return{cls:'collecting',text:'线路基准采集中'};
 }
 function routePath(path){return (path||[]).length?(path||[]).map(x=>`<span class="as-chip">${esc(x)}</span>`).join('<span class="as-arrow">→</span>'):'<span class="muted-path">等待 ASN 路径…</span>'}
+function normalizeASN(v){return String(v||'').trim().toUpperCase().split('/')[0]}
+function routeLine(name,path){
+  const set=new Set((path||[]).map(normalizeASN));
+  const telecom=String(name||'').endsWith('电信'),unicom=String(name||'').endsWith('联通'),mobile=String(name||'').endsWith('移动');
+  if(telecom){
+    if(set.has('AS4809'))return{key:'cn2',name:'CN2',detail:'AS4809'};
+    if(set.has('AS4134'))return{key:'standard',name:'163 / ChinaNet',detail:'AS4134'};
+    if(set.has('AS23764'))return{key:'intl',name:'CTGNet',detail:'AS23764'};
+  }
+  if(unicom){
+    if(set.has('AS9929'))return{key:'premium',name:'CUII / 9929',detail:'AS9929'};
+    if(set.has('AS4837'))return{key:'standard',name:'4837 / China169',detail:'AS4837'};
+    if(set.has('AS10099'))return{key:'intl',name:'CUG',detail:'AS10099'};
+  }
+  if(mobile){
+    if(set.has('AS58807'))return{key:'cmin2',name:'CMIN2',detail:'AS58807'};
+    if(set.has('AS58453'))return{key:'intl',name:'CMI',detail:'AS58453'};
+    if(set.has('AS9808'))return{key:'standard',name:'CMNET',detail:'AS9808'};
+  }
+  return{key:'unknown',name:(path||[]).length?'其他 / 未识别':'等待识别',detail:''};
+}
+function lineBadge(line,prefix=''){
+  return `<span class="line-badge ${line.key}">${prefix?`<small>${esc(prefix)}</small>`:''}<strong>${esc(line.name)}</strong>${line.detail?`<em>${esc(line.detail)}</em>`:''}</span>`;
+}
+function routeEventSummary(e){
+  const from=routeLine(e.name,e.from),to=routeLine(e.name,e.to);
+  if(from.name===to.name)return `${from.name} · ASN 路径变化`;
+  return `${from.name} → ${to.name}`;
+}
 function carrierStatus(c){
   if(!c?.available)return{cls:'unavailable',text:'不可用'};
   if(c.status==='changed')return{cls:'changed',text:'路径变化'};
@@ -72,15 +101,16 @@ function renderRoutes(route){
   const overall=statusInfo(route?.status,route?.changed_count);const badge=$('#networkStatus');badge.className=`route-state ${overall.cls}`;badge.textContent=overall.text;
   $('#routeMeta').textContent=`约每 30 分钟检测 · 最后检测 ${fmtTime(route?.last_checked)} · 路径变化需连续两次确认`;
   $('#asnSource').textContent=route?.asn_source?`ASN 映射：${route.asn_source}。Dashboard 不展示 traceroute 跳点 IP。`:'';
-  const carriers=route?.carriers||[];$('#routeGrid').innerHTML=carriers.length?carriers.map(c=>{const st=carrierStatus(c);return `<article class="route-card">
+  const carriers=route?.carriers||[];$('#routeGrid').innerHTML=carriers.length?carriers.map(c=>{const st=carrierStatus(c),currentLine=routeLine(c.name,c.current),baselineLine=routeLine(c.name,c.baseline);return `<article class="route-card">
     <div class="route-card-head"><div><div class="route-card-name">${esc(c.name)}</div><div class="series-target">${esc(c.target||'')}</div></div><span class="route-state ${st.cls}">${st.text}</span></div>
-    <div class="route-label">当前路径</div><div class="as-path">${routePath(c.current)}</div>
-    <div class="route-label">基准路径</div><div class="as-path baseline-path">${routePath(c.baseline)}</div>
+    <div class="line-identify"><span class="route-label-inline">线路识别</span>${lineBadge(currentLine,'当前')}${baselineLine.name!==currentLine.name?lineBadge(baselineLine,'基准'):''}</div>
+    <div class="route-label">当前 ASN 路径</div><div class="as-path">${routePath(c.current)}</div>
+    <div class="route-label">基准 ASN 路径</div><div class="as-path baseline-path">${routePath(c.baseline)}</div>
     <div class="route-meta">${c.first_different?`首个不同 ASN：第 ${c.first_different} 个 · `:''}最后检测 ${fmtTime(c.last_checked)}${c.changed_at?` · 变化确认 ${fmtTime(c.changed_at)}`:''}</div>
     <details class="route-hops"><summary>查看 ASN 跳点</summary><div class="hop-list">${(c.hops||[]).length?(c.hops||[]).map(h=>`<div><span>#${Number(h.hop)}</span><strong>${esc(h.asn||'未识别')}</strong></div>`).join(''):'<div class="small">未取得可识别跳点。</div>'}</div></details>
   </article>`}).join(''):'<div class="empty route-empty">等待 Agent 首次路由采集，通常升级后数十秒内开始出现。</div>';
   const events=[...(route?.events||[])].reverse();
-  $('#routeEvents').innerHTML=events.length?`<div class="route-events-title">最近路由事件</div><div class="route-event-list">${events.map(e=>`<div class="route-event"><span>${fmtTime(e.at)}</span><strong>${esc(e.name)}</strong><em class="${e.type==='recovered'?'normal':'changed'}">${e.type==='recovered'?'恢复基准':'确认变化'}</em><span class="route-event-path">${esc((e.from||[]).join(' → '))} → ${esc((e.to||[]).join(' → '))}</span></div>`).join('')}</div>`:'';
+  $('#routeEvents').innerHTML=events.length?`<div class="route-events-title">最近路由事件</div><div class="route-event-list">${events.map(e=>`<div class="route-event"><span>${fmtTime(e.at)}</span><strong>${esc(e.name)}</strong><em class="${e.type==='recovered'?'normal':'changed'}">${e.type==='recovered'?'恢复基准':'确认变化'}</em><span class="route-event-line">${esc(routeEventSummary(e))}</span><span class="route-event-path">${esc((e.from||[]).join(' → '))} → ${esc((e.to||[]).join(' → '))}</span></div>`).join('')}</div>`:'';
 }
 async function load(range){
   currentRange=range;document.querySelectorAll('.range-btn').forEach(b=>b.classList.toggle('active',b.dataset.range===range));

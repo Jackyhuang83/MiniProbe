@@ -4,7 +4,7 @@ version: 1.0
 status: project-skill
 description: Maintain, debug, test, package, release, deploy, and operate the MiniProbe personal VPS monitoring project. Use for MiniProbe architecture decisions, Server/Agent code changes, IPv4/IPv6/NAT behavior, domestic line probing, traffic accounting, Dashboard/Telegram behavior, Agent self-update, GitHub release workflows, production troubleshooting, and step-by-step user operations. Preserve MiniProbe's strict security, storage, compatibility, and simplicity constraints.
 repository: https://github.com/Jackyhuang83/MiniProbe
-baseline: v0.4.12-alpha
+baseline: v0.4.13-alpha
 language: zh-CN
 ---
 
@@ -63,7 +63,7 @@ Agent 负责：
 当前开发 / 发布目标基线：
 
 ```text
-v0.4.12-alpha
+v0.4.13-alpha
 ```
 
 当前已经完成并经过实机验证的重要能力：
@@ -83,6 +83,7 @@ v0.4.12-alpha
 - v0.4.10-alpha 修复“私网 IPv4 地址但无 IPv4 出站能力仍被误判 V4”的问题。
 - v0.4.11-alpha 修复 IPv6-only 三网 DNS RTT 失真：改为运营商官网 AAAA + 强制 tcp6/TCP 80 connect RTT。
 - v0.4.12-alpha 增加独立线路详情页、31 天有界线路历史、ASN 路由基准/变化确认以及路由事件与 RTT 曲线关联。
+- v0.4.13-alpha 增加 ASN 路径可读线路标签：CN2 / 163、CUII / 9929 / 4837、CMIN2 / CMI / CMNET；仅依据实际关键 ASN 命中，不猜测 GIA 等产品等级。Server 与 Agent 版本从本版起允许独立推进，当前目标 Agent 仍为 v0.4.12-alpha。
 
 当前产品策略：
 
@@ -1378,6 +1379,7 @@ Bugfix 优先采用小版本递增，例如：
 v0.4.10-alpha
 -> v0.4.11-alpha
 -> v0.4.12-alpha
+-> v0.4.13-alpha
 ```
 
 不要覆盖已发布 Tag。

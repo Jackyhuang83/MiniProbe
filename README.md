@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.12-alpha`
+当前版本：`v0.4.13-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.12-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.13-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -321,6 +321,8 @@ Agent 约每 30 分钟执行一次 ICMP traceroute
 ```
 
 ASN 映射由 Server 使用 Team Cymru 的 DNS IP-to-ASN 社区服务完成，只用于线路路由识别，不用于 GeoIP、节点位置或网络标签判断。ASN 路径第一次成功采集时自动建立基准；出现不同路径时必须连续两次确认才标记“路由变化”，避免单次 traceroute 丢跳造成误报。最近最多保留 50 条“变化确认 / 恢复基准”事件，并在对应运营商的长期 RTT 图上标出事件时间，便于判断路由变化是否伴随延迟变化。
+
+从 `v0.4.13-alpha` 起，线路详情会在 ASN 路径上方给出可读的骨干网识别：电信 `AS4809 -> CN2`、`AS4134 -> 163 / ChinaNet`；联通 `AS9929 -> CUII / 9929`、`AS4837 -> 4837 / China169`；移动 `AS58807 -> CMIN2`、`AS58453 -> CMI`、`AS9808 -> CMNET`。高优先级骨干标识优先于普通骨干，例如同一路径同时出现 `AS4809` 与 `AS4134` 时显示 `CN2`。识别不到关键 ASN 时明确显示“其他 / 未识别”，不根据运营商名称猜测，也不进一步声称 CN2 GIA 等仅凭 ASN 路径无法可靠确认的产品等级。路由事件同时显示“CN2 -> 163 / ChinaNet”一类可读变化，并保留完整 ASN Path 供排查。
 
 Dashboard 仍然只读。如果确实需要把当前 ASN 路径重新设为基准，只能通过 Server SSH：
 
@@ -637,13 +639,15 @@ miniprobe
 
 安全边界保持不变：集中升级不是远程 Shell。Server 下发的是 Ed25519 签名的固定 `UpgradePolicy`，其中只允许当前节点、当前目标版本、当前 CPU 架构对应的 MiniProbe Agent 文件、SHA256 和大小。Agent 不接受任意命令，不接受任意 URL，也不会写入 `agent.env`。下载完成后还会运行新二进制的 `--version` 自检，全部通过才切换。
 
+从 `v0.4.13-alpha` 起，Server 版本与“目标 Agent 版本”显式解耦。纯 Server / Dashboard 更新不会为了追求版本号一致而强制所有 Agent 重装；菜单 12 会单独显示 Server 版本和当前目标 Agent 版本。
+
 需要注意一次性 bootstrap：`v0.4.8-alpha` 及更早 Agent 本身没有自更新代码，因此升级到 `v0.4.9-alpha` 时仍需最后一次逐台执行安装/更新命令。所有节点进入 `v0.4.9-alpha` 后，后续 MiniProbe 版本即可从 Server 统一升级。
 
 ---
 
 # 13. 当前版本说明
 
-`v0.4.12-alpha` 增加轻量线路历史与 ASN 路由详情页，并保留 v0.4.11-alpha 的 IPv6-only 三网 TCP 探测修复：
+`v0.4.13-alpha` 在 v0.4.12-alpha 线路详情基础上增加可读骨干网识别；本版为 Server/UI 增强，Agent 探测逻辑仍为 v0.4.12-alpha：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
@@ -671,6 +675,7 @@ IPv6-only 节点改用三运营商官方站点域名；解析 AAAA 后强制 tcp
 Server 以分钟聚合追加线路历史，原始历史保留 31 天并设置 256 MiB 独立硬上限
 Agent 约每 30 分钟执行一次轻量 ICMP traceroute，Server 集中做 ASN 映射
 ASN 路由变化需连续两次确认；最多保留 50 条变化/恢复事件，并在 RTT 曲线上标记
+线路详情将关键 ASN 翻译为 CN2 / 163、CUII / 9929 / 4837、CMIN2 / CMI / CMNET，并在路由事件中显示可读线路变化
 原始 traceroute hop IP 只在 Agent -> Server 处理过程中短暂存在，不写入主数据库、线路历史或 Dashboard
 线路基准只能通过 SSH 菜单 11 重置，Dashboard 继续保持只读
 IPv4-only / 双栈节点继续沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议

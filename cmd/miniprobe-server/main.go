@@ -43,7 +43,8 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.12-alpha"
+	serverVersion        = "0.4.13-alpha"
+	agentTargetVersion   = "0.4.12-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
 	defaultAdminSock     = "/run/miniprobe/admin.sock"
@@ -1362,7 +1363,7 @@ func (s *server) localAgentUpgrade(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		v := s.db.States[id]
-		if v.AgentVersion == serverVersion {
+		if v.AgentVersion == agentTargetVersion {
 			skipped = append(skipped, skippedNode{ID: id, Reason: "already current"})
 			continue
 		}
@@ -1377,7 +1378,7 @@ func (s *server) localAgentUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 		s.db.AgentUpgrades[id] = agentUpgradeRequest{
 			RequestID:     base64.RawURLEncoding.EncodeToString(randomBytes(12)),
-			TargetVersion: serverVersion,
+			TargetVersion: agentTargetVersion,
 			RequestedAt:   time.Now().UTC(),
 		}
 		scheduled = append(scheduled, id)
@@ -1390,7 +1391,7 @@ func (s *server) localAgentUpgrade(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"target_version": serverVersion,
+		"target_version": agentTargetVersion,
 		"scheduled":      scheduled,
 		"skipped":        skipped,
 	})
@@ -2643,13 +2644,13 @@ func manageAgentUpgrades(r *bufio.Reader, c *localClient) {
 		fmt.Println("暂无节点。")
 		return
 	}
-	fmt.Printf("\nServer / 目标 Agent 版本：%s\n", serverVersion)
+	fmt.Printf("\nServer 版本：%s · 目标 Agent 版本：%s\n", serverVersion, agentTargetVersion)
 	fmt.Printf("%-3s %-20s %-16s %-12s\n", "#", "名称", "Agent", "升级状态")
 	eligible := make([]adminNodeView, 0)
 	for i, n := range nodes {
 		status := "最新"
 		switch {
-		case n.AgentVersion == serverVersion:
+		case n.AgentVersion == agentTargetVersion:
 			status = "最新"
 		case !hasCapability(n.Capabilities, selfUpdateCapability):
 			status = "需手动一次"
@@ -2660,7 +2661,7 @@ func manageAgentUpgrades(r *bufio.Reader, c *localClient) {
 		default:
 			status = "可集中升级"
 		}
-		if n.AgentVersion != serverVersion && hasCapability(n.Capabilities, selfUpdateCapability) && !n.UpgradeRequested {
+		if n.AgentVersion != agentTargetVersion && hasCapability(n.Capabilities, selfUpdateCapability) && !n.UpgradeRequested {
 			eligible = append(eligible, n)
 		}
 		fmt.Printf("%-3d %-20s %-16s %-12s\n", i+1, trimRunes(n.DisplayName, 20), trimRunes(n.AgentVersion, 16), status)
@@ -2676,7 +2677,7 @@ func manageAgentUpgrades(r *bufio.Reader, c *localClient) {
 			fmt.Println("当前没有可集中升级的 Agent。")
 			return
 		}
-		if strings.ToUpper(prompt(r, fmt.Sprintf("将为 %d 个 Agent 排队升级到 %s，输入 YES 确认: ", len(eligible), serverVersion))) != "YES" {
+		if strings.ToUpper(prompt(r, fmt.Sprintf("将为 %d 个 Agent 排队升级到 %s，输入 YES 确认: ", len(eligible), agentTargetVersion))) != "YES" {
 			fmt.Println("已取消。")
 			return
 		}
@@ -2690,7 +2691,7 @@ func manageAgentUpgrades(r *bufio.Reader, c *localClient) {
 		if !ok {
 			return
 		}
-		if n.AgentVersion == serverVersion {
+		if n.AgentVersion == agentTargetVersion {
 			fmt.Println("该节点已经是最新 Agent。")
 			return
 		}
