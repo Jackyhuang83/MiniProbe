@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.14-alpha`
+当前版本：`v0.4.15-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.14-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.15-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -324,7 +324,7 @@ ASN 映射由 Server 使用 Team Cymru 的 DNS IP-to-ASN 社区服务完成，�
 
 从 `v0.4.13-alpha` 起，线路详情会在 ASN 路径上方给出可读的骨干网识别：电信 `AS4809 -> CN2`、`AS4134 -> 163 / ChinaNet`；联通 `AS9929 -> CUII / 9929`、`AS4837 -> 4837 / China169`；移动 `AS58807 -> CMIN2`、`AS58453 -> CMI`、`AS9808 -> CMNET`。高优先级骨干标识优先于普通骨干，例如同一路径同时出现 `AS4809` 与 `AS4134` 时显示 `CN2`。识别不到关键 ASN 时明确显示“其他 / 未识别”，不根据运营商名称猜测，也不进一步声称 CN2 GIA 等仅凭 ASN 路径无法可靠确认的产品等级。路由事件同时显示“CN2 -> 163 / ChinaNet”一类可读变化，并保留完整 ASN Path 供排查。
 
-从 `v0.4.14-alpha` 起，Dashboard 静态资源使用 Server 版本作为缓存键：HTML 会规范到带 `?v=<Server版本>` 的 URL，JS/CSS/SVG 使用同版本查询参数；Dashboard 还会从 `/api/v1/dashboard/session` 校验当前 Server 版本，发现旧 UI 时自动跳转到新版本 URL。这样即使 Cloudflare 对静态资源设置了较长缓存，后续 Server/UI 发布也不会继续复用上一版 JS/CSS。未带版本号的静态资源由源站返回 `no-store`，带版本号的资源可安全长期缓存。
+从 `v0.4.15-alpha` 起，Dashboard 使用版本化路径 `/ui/<Server版本>/...` 作为静态资源缓存键，不再依赖 Query String。这样即使 Cloudflare 缓存规则忽略 `?v=`，不同 Server/UI 版本也会落到完全不同的 URL。未版本化的 HTML 会在源站重定向到当前 `/ui/<版本>/`；未版本化静态资源返回 `no-store`；版本化 JS/CSS/SVG 可安全长期缓存。Dashboard Session 仍返回 `server_version`，旧 UI 发现 Server 版本变化后会跳到新的版本化路径。
 
 Dashboard 仍然只读。如果确实需要把当前 ASN 路径重新设为基准，只能通过 Server SSH：
 
@@ -649,7 +649,7 @@ miniprobe
 
 # 13. 当前版本说明
 
-`v0.4.14-alpha` 修复 Dashboard / Cloudflare 静态资源旧缓存问题，并保留 v0.4.13-alpha 的可读骨干网识别；本版仍为 Server/UI 增强，Agent 探测逻辑保持 v0.4.12-alpha：
+`v0.4.15-alpha` 将 Dashboard 缓存键从查询参数升级为版本化路径，兼容会忽略 Query String 的 Cloudflare 缓存规则；并保留 v0.4.13-alpha 的可读骨干网识别。Agent 探测逻辑仍保持 v0.4.12-alpha：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复

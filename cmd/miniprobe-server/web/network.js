@@ -1,5 +1,6 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.14-alpha';
+const UI_VERSION='0.4.15-alpha';
+const UI_BASE=`/ui/${UI_VERSION}`;
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let currentData=null,currentRange='day';
 
@@ -129,10 +130,10 @@ async function boot(){
   try{
     const s=await api('/api/v1/dashboard/session');
     const liveVersion=String(s.server_version||'').trim();
-    if(liveVersion && liveVersion!==UI_VERSION){const u=new URL(location.href);u.searchParams.set('v',liveVersion);location.replace(u.pathname+'?'+u.searchParams.toString());return}
-    if(s.mode==='disabled'||(s.mode==='protected'&&!s.authenticated)){location.href=`/?v=${encodeURIComponent(UI_VERSION)}`;return}
+    if(liveVersion && liveVersion!==UI_VERSION){const u=new URL(location.href),q=u.searchParams.toString();location.replace(`/ui/${encodeURIComponent(liveVersion)}/network.html${q?`?${q}`:''}`);return}
+    if(s.mode==='disabled'||(s.mode==='protected'&&!s.authenticated)){location.href=`${UI_BASE}/`;return}
     await load('day')
-  }catch{location.href=`/?v=${encodeURIComponent(UI_VERSION)}`}
+  }catch{location.href=`${UI_BASE}/`}
 }
 document.querySelectorAll('.range-btn').forEach(b=>b.addEventListener('click',()=>load(b.dataset.range)));
 let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(currentData)renderSeries(currentData)},120)});

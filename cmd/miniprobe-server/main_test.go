@@ -175,14 +175,14 @@ func TestDashboardAssetsRedirectAndVersionedCachePolicy(t *testing.T) {
 		t.Fatalf("unversioned HTML status=%d want %d", w.Code, http.StatusTemporaryRedirect)
 	}
 	location := w.Header().Get("Location")
-	if !strings.Contains(location, "id=node-1") || !strings.Contains(location, "v="+serverVersion) {
-		t.Fatalf("redirect location %q does not preserve id and add version", location)
+	if !strings.Contains(location, "/ui/"+serverVersion+"/network.html") || !strings.Contains(location, "id=node-1") {
+		t.Fatalf("redirect location %q does not preserve id and add versioned path", location)
 	}
 	if got := w.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("redirect Cache-Control=%q want no-store", got)
 	}
 
-	r = httptest.NewRequest(http.MethodGet, "/network.js?v="+serverVersion, nil)
+	r = httptest.NewRequest(http.MethodGet, "/ui/"+serverVersion+"/network.js", nil)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {

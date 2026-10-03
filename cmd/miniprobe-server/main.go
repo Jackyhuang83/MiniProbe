@@ -43,7 +43,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.14-alpha"
+	serverVersion        = "0.4.15-alpha"
 	agentTargetVersion   = "0.4.12-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -821,37 +821,50 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 		}
 
 		path := r.URL.Path
+		uiPrefix := "/ui/" + serverVersion
+		versioned := path == uiPrefix || strings.HasPrefix(path, uiPrefix+"/")
+
+		// Use the URL path, not only a query string, as the release cache key.
+		// Some Cloudflare cache rules intentionally ignore query strings; a new
+		// /ui/<version>/ path therefore guarantees a distinct cache object.
+		if versioned {
+			rel := strings.TrimPrefix(path, uiPrefix)
+			if rel == "" || rel == "/" {
+				rel = "/index.html"
+			}
+			r.URL.Path = rel
+			isHTML := rel == "/index.html" || rel == "/network.html"
+			isStatic := strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".css") || strings.HasSuffix(rel, ".svg")
+			if isHTML {
+				noStore(w)
+			} else if isStatic {
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
+
 		isHTML := path == "/" || path == "/index.html" || path == "/network.html"
 		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".svg")
-		version := strings.TrimSpace(r.URL.Query().Get("v"))
-
-		// Cloudflare or browser caches may keep an older embedded Dashboard after
-		// a Server upgrade. HTML is always canonicalized onto a versioned URL so
-		// every release gets a fresh CDN cache key. Preserve node/query parameters.
-		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) && version != serverVersion {
-			q := r.URL.Query()
-			q.Set("v", serverVersion)
-			target := path
-			if target == "" {
-				target = "/"
+		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			target := uiPrefix + "/"
+			if path == "/network.html" {
+				target = uiPrefix + "/network.html"
 			}
-			target += "?" + q.Encode()
+			q := r.URL.Query()
+			q.Del("v")
+			if encoded := q.Encode(); encoded != "" {
+				target += "?" + encoded
+			}
 			noStore(w)
 			http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 			return
 		}
 
-		if isHTML {
-			// HTML contains release-specific asset URLs and should be revalidated.
-			noStore(w)
-		} else if isStatic && version == serverVersion {
-			// Versioned static assets are immutable; the URL changes on every Server/UI release.
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		} else if isStatic {
-			// Discourage new unversioned edge/browser cache entries.
+		if isStatic {
+			// Legacy unversioned assets must never create another long-lived cache entry.
 			noStore(w)
 		}
-
 		next.ServeHTTP(w, r)
 	})
 }
