@@ -1,9 +1,11 @@
 package main
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -156,5 +158,49 @@ func TestLoadAgentAssetsAndCapability(t *testing.T) {
 	}
 	if hasCapability([]string{"other"}, selfUpdateCapability) {
 		t.Fatal("unexpected self-update capability")
+	}
+}
+
+func TestDashboardAssetsRedirectAndVersionedCachePolicy(t *testing.T) {
+	s := &server{db: database{Settings: settings{DashboardMode: dashboardPublic}}}
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	h := s.dashboardAssets(next)
+
+	r := httptest.NewRequest(http.MethodGet, "/network.html?id=node-1", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("unversioned HTML status=%d want %d", w.Code, http.StatusTemporaryRedirect)
+	}
+	location := w.Header().Get("Location")
+	if !strings.Contains(location, "id=node-1") || !strings.Contains(location, "v="+serverVersion) {
+		t.Fatalf("redirect location %q does not preserve id and add version", location)
+	}
+	if got := w.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("redirect Cache-Control=%q want no-store", got)
+	}
+
+	r = httptest.NewRequest(http.MethodGet, "/network.js?v="+serverVersion, nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("versioned static status=%d", w.Code)
+	}
+	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Fatalf("versioned static Cache-Control=%q want immutable", got)
+	}
+}
+
+func TestEmbeddedDashboardUsesServerVersion(t *testing.T) {
+	for _, name := range []string{"web/index.html", "web/network.html", "web/app.js", "web/network.js"} {
+		b, err := assets.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if !strings.Contains(string(b), serverVersion) {
+			t.Fatalf("%s does not contain server version %s for cache busting", name, serverVersion)
+		}
 	}
 }

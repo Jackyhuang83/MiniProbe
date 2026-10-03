@@ -1,4 +1,5 @@
 const $=s=>document.querySelector(s);
+const UI_VERSION='0.4.14-alpha';
 let dashboardMode='';
 
 const fmtBytes=n=>{n=Number(n||0);if(!Number.isFinite(n))return'-';const u=['B','KB','MB','GB','TB','PB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return `${n.toFixed(i?1:0)} ${u[i]}`};
@@ -28,11 +29,11 @@ function shortVersion(raw,name){
 }
 function osIdentity(os){
   const raw=String(os||'Linux').trim(),s=raw.toLowerCase();
-  if(s.includes('debian')) return {src:'/debian.svg',label:shortVersion(raw,'Debian')};
-  if(s.includes('ubuntu')) return {src:'/ubuntu.svg',label:shortVersion(raw,'Ubuntu')};
-  if(s.includes('alpine')) return {src:'/alpine.svg',label:shortVersion(raw,'Alpine')};
-  if(s.includes('rocky')) return {src:'/rocky.svg',label:'Rocky Linux'};
-  if(s.includes('alma')) return {src:'/alma.svg',label:'AlmaLinux'};
+  if(s.includes('debian')) return {src:'/debian.svg?v=0.4.14-alpha',label:shortVersion(raw,'Debian')};
+  if(s.includes('ubuntu')) return {src:'/ubuntu.svg?v=0.4.14-alpha',label:shortVersion(raw,'Ubuntu')};
+  if(s.includes('alpine')) return {src:'/alpine.svg?v=0.4.14-alpha',label:shortVersion(raw,'Alpine')};
+  if(s.includes('rocky')) return {src:'/rocky.svg?v=0.4.14-alpha',label:'Rocky Linux'};
+  if(s.includes('alma')) return {src:'/alma.svg?v=0.4.14-alpha',label:'AlmaLinux'};
   return {src:'',label:raw||'Linux'};
 }
 function osMark(os){
@@ -205,7 +206,7 @@ function card(n){
       ${probeProtocol==='OFF'?'<div class="small waiting">线路测试已关闭</div>':((n.probes||[]).map(probe).join('')||'<div class="small waiting">等待线路探测数据…</div>')}
     </div>
 
-    <div class="route-strip"><span class="route-state ${route.cls}">${route.text}</span><a class="route-link" href="/network.html?id=${encodeURIComponent(n.node_id)}">查看线路详情 ›</a></div>
+    <div class="route-strip"><span class="route-state ${route.cls}">${route.text}</span><a class="route-link" href="/network.html?id=${encodeURIComponent(n.node_id)}&v=0.4.14-alpha">查看线路详情 ›</a></div>
     ${tagHtml?`<div class="footer">${tagHtml}</div>`:''}
   </article>`;
 }
@@ -225,6 +226,10 @@ async function refresh(){
 async function boot(){
   try{
     const s=await api('/api/v1/dashboard/session');
+    const liveVersion=String(s.server_version||'').trim();
+    if(liveVersion && liveVersion!==UI_VERSION){
+      const u=new URL(location.href);u.searchParams.set('v',liveVersion);location.replace(u.pathname+'?'+u.searchParams.toString());return;
+    }
     dashboardMode=s.mode;
     updateSecurityBanner(s);
     if(s.mode==='disabled'){show('disabledView');return}

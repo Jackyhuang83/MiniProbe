@@ -43,7 +43,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.13-alpha"
+	serverVersion        = "0.4.14-alpha"
 	agentTargetVersion   = "0.4.12-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -726,7 +726,7 @@ func (s *server) dashboardSessionInfo(w http.ResponseWriter, r *http.Request) {
 	mode := s.dashboardMode()
 	authenticated := mode == dashboardPublic || (mode == dashboardProtected && s.hasDashboardSession(r))
 	writeJSON(w, http.StatusOK, map[string]any{
-		"mode": mode, "authenticated": authenticated, "secure": requestIsTLS(r), "trust_days": 30,
+		"mode": mode, "authenticated": authenticated, "secure": requestIsTLS(r), "trust_days": 30, "server_version": serverVersion,
 	})
 }
 
@@ -819,6 +819,39 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
+
+		path := r.URL.Path
+		isHTML := path == "/" || path == "/index.html" || path == "/network.html"
+		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".svg")
+		version := strings.TrimSpace(r.URL.Query().Get("v"))
+
+		// Cloudflare or browser caches may keep an older embedded Dashboard after
+		// a Server upgrade. HTML is always canonicalized onto a versioned URL so
+		// every release gets a fresh CDN cache key. Preserve node/query parameters.
+		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) && version != serverVersion {
+			q := r.URL.Query()
+			q.Set("v", serverVersion)
+			target := path
+			if target == "" {
+				target = "/"
+			}
+			target += "?" + q.Encode()
+			noStore(w)
+			http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+			return
+		}
+
+		if isHTML {
+			// HTML contains release-specific asset URLs and should be revalidated.
+			noStore(w)
+		} else if isStatic && version == serverVersion {
+			// Versioned static assets are immutable; the URL changes on every Server/UI release.
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if isStatic {
+			// Discourage new unversioned edge/browser cache entries.
+			noStore(w)
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }

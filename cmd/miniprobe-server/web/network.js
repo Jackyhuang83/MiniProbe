@@ -1,4 +1,5 @@
 const $=s=>document.querySelector(s);
+const UI_VERSION='0.4.14-alpha';
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let currentData=null,currentRange='day';
 
@@ -125,7 +126,13 @@ async function load(range){
 }
 function showError(msg){$('#networkLoading').classList.add('hidden');$('#networkView').classList.remove('hidden');const e=$('#networkError');e.textContent=msg;e.classList.remove('hidden')}
 async function boot(){
-  try{const s=await api('/api/v1/dashboard/session');if(s.mode==='disabled'||(s.mode==='protected'&&!s.authenticated)){location.href='/';return}await load('day')}catch{location.href='/'}
+  try{
+    const s=await api('/api/v1/dashboard/session');
+    const liveVersion=String(s.server_version||'').trim();
+    if(liveVersion && liveVersion!==UI_VERSION){const u=new URL(location.href);u.searchParams.set('v',liveVersion);location.replace(u.pathname+'?'+u.searchParams.toString());return}
+    if(s.mode==='disabled'||(s.mode==='protected'&&!s.authenticated)){location.href=`/?v=${encodeURIComponent(UI_VERSION)}`;return}
+    await load('day')
+  }catch{location.href=`/?v=${encodeURIComponent(UI_VERSION)}`}
 }
 document.querySelectorAll('.range-btn').forEach(b=>b.addEventListener('click',()=>load(b.dataset.range)));
 let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{if(currentData)renderSeries(currentData)},120)});
