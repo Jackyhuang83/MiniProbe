@@ -43,7 +43,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.15-alpha"
+	serverVersion        = "0.4.16-alpha"
 	agentTargetVersion   = "0.4.12-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -829,8 +829,20 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 		// /ui/<version>/ path therefore guarantees a distinct cache object.
 		if versioned {
 			rel := strings.TrimPrefix(path, uiPrefix)
-			if rel == "" || rel == "/" {
-				rel = "/index.html"
+			if rel == "" {
+				// Canonicalize /ui/<version> to the trailing-slash root once.
+				// Do not rewrite the root to /index.html: net/http FileServer
+				// canonicalizes /index.html back to ./, which would make the
+				// versioned root redirect to itself forever.
+				noStore(w)
+				http.Redirect(w, r, uiPrefix+"/", http.StatusTemporaryRedirect)
+				return
+			}
+			if rel == "/" {
+				r.URL.Path = "/"
+				noStore(w)
+				next.ServeHTTP(w, r)
+				return
 			}
 			r.URL.Path = rel
 			isHTML := rel == "/index.html" || rel == "/network.html"

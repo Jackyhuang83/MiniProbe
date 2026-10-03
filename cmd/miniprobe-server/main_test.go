@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -190,6 +191,40 @@ func TestDashboardAssetsRedirectAndVersionedCachePolicy(t *testing.T) {
 	}
 	if got := w.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
 		t.Fatalf("versioned static Cache-Control=%q want immutable", got)
+	}
+}
+
+func TestVersionedDashboardRootDoesNotRedirectLoop(t *testing.T) {
+	s := &server{db: database{Settings: settings{DashboardMode: dashboardPublic}}}
+	sub, err := fs.Sub(assets, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.dashboardAssets(http.FileServer(http.FS(sub)))
+
+	// The canonical trailing-slash versioned root must serve index.html directly.
+	r := httptest.NewRequest(http.MethodGet, "/ui/"+serverVersion+"/", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("versioned root status=%d want 200; Location=%q", w.Code, w.Header().Get("Location"))
+	}
+	if got := w.Header().Get("Location"); got != "" {
+		t.Fatalf("versioned root unexpectedly redirects to %q", got)
+	}
+	if !strings.Contains(w.Body.String(), "MiniProbe") {
+		t.Fatal("versioned root did not serve embedded index.html")
+	}
+
+	// Missing trailing slash gets exactly one canonical redirect.
+	r = httptest.NewRequest(http.MethodGet, "/ui/"+serverVersion, nil)
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("versioned root without slash status=%d want 307", w.Code)
+	}
+	if got, want := w.Header().Get("Location"), "/ui/"+serverVersion+"/"; got != want {
+		t.Fatalf("versioned root redirect Location=%q want %q", got, want)
 	}
 }
 

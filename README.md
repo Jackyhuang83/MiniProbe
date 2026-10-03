@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.15-alpha`
+当前版本：`v0.4.16-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -25,7 +25,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
 # 1. 首次部署 / 故障恢复：Direct HTTP
 
-发布 `v0.4.15-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
+发布 `v0.4.16-alpha` GitHub Release 后，Server 端默认从该 Release 下载二进制，只需要一条安装命令：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Jackyhuang83/MiniProbe/main/scripts/install-server.sh | bash
@@ -649,7 +649,7 @@ miniprobe
 
 # 13. 当前版本说明
 
-`v0.4.15-alpha` 将 Dashboard 缓存键从查询参数升级为版本化路径，兼容会忽略 Query String 的 Cloudflare 缓存规则；并保留 v0.4.13-alpha 的可读骨干网识别。Agent 探测逻辑仍保持 v0.4.12-alpha：
+`v0.4.16-alpha` 修复 v0.4.15-alpha 版本化 UI 根路径的重定向循环；继续使用 `/ui/<Server版本>/...` 作为缓存隔离路径，并保留 v0.4.13-alpha 的可读骨干网识别。Agent 探测逻辑仍保持 v0.4.12-alpha：
 
 ```text
 Direct HTTP 用于首次部署 / 故障恢复
