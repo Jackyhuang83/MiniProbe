@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.12-alpha"
+	agentVersion         = "0.4.17-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
@@ -233,7 +233,7 @@ func main() {
 		// instead of hairpinning through public DNS / Cloudflare Tunnel. The local
 		// admin socket plus loopback health check identify the Server host. Once
 		// identified, reporting stays local so recovery is independent of DNS/Tunnel.
-		endpoints := reportEndpoints(configuredEndpoint, localMiniProbeServerAvailable(client))
+		endpoints := reportEndpoints(configuredEndpoint, localMiniProbeServerAvailable(client, c.Token))
 		var response *common.ReportResponse
 		var sendErr error
 		successfulEndpoint := ""
@@ -351,11 +351,21 @@ func resetHTTPClient(old *http.Client) *http.Client {
 	return newHTTPClient()
 }
 
-func localMiniProbeServerAvailable(client *http.Client) bool {
+// A health check only proves that *a* MiniProbe Server runs locally. A VPS
+// may run an unrelated Server with a different signing/authorization secret.
+// Only use loopback when that Server also accepts this Agent's bearer token.
+func localMiniProbeServerAvailable(client *http.Client, token string) bool {
 	if _, err := os.Stat(localAdminSocket); err != nil {
 		return false
 	}
-	req, err := http.NewRequest(http.MethodGet, localServerEndpoint+"/healthz", nil)
+	return localServerMatchesAgent(client, localServerEndpoint, token)
+}
+
+func localServerMatchesAgent(client *http.Client, endpoint, token string) bool {
+	if strings.TrimSpace(token) == "" {
+		return false
+	}
+	req, err := http.NewRequest(http.MethodGet, endpoint+"/healthz", nil)
 	if err != nil {
 		return false
 	}
@@ -363,9 +373,28 @@ func localMiniProbeServerAvailable(client *http.Client) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64))
-	return resp.StatusCode == http.StatusOK
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	// The Server checks Bearer authentication before parsing report JSON.
+	// A deliberately incomplete JSON body yields 400 "bad json" only for an
+	// authenticated Agent; rejected credentials yield 401. No state is updated.
+	req, err = http.NewRequest(http.MethodPost, endpoint+"/api/v1/report", strings.NewReader("{"))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err = client.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64))
+	return err == nil && resp.StatusCode == http.StatusBadRequest && strings.TrimSpace(string(b)) == "bad json"
 }
 
 func reportEndpoints(configured string, localReady bool) []string {

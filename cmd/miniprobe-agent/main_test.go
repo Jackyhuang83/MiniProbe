@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -157,6 +158,65 @@ func TestProbeTCPOnceTCP6(t *testing.T) {
 		t.Fatalf("tcp6 probe failed: ok=%v latency=%.3f", ok, ms)
 	}
 	<-done
+}
+
+func TestLocalServerMatchesAgentRequiresValidToken(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/healthz":
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		case "/api/v1/report":
+			if r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer correct-token" {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			if string(body) != "{" {
+				t.Errorf("authentication probe unexpectedly sent report data: %q", body)
+			}
+			http.Error(w, "bad json", http.StatusBadRequest)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer ts.Close()
+
+	if !localServerMatchesAgent(ts.Client(), ts.URL, "correct-token") {
+		t.Fatal("the matching local Server should be accepted")
+	}
+	if localServerMatchesAgent(ts.Client(), ts.URL, "wrong-token") {
+		t.Fatal("a different local Server must not hijack Agent reports")
+	}
+	if localServerMatchesAgent(ts.Client(), ts.URL, "") {
+		t.Fatal("missing credentials must not select loopback")
+	}
+}
+
+func TestLocalServerMatchesAgentRejectsUnrecognizedBadRequest(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "unrecognized request", http.StatusBadRequest)
+	}))
+	defer ts.Close()
+
+	if localServerMatchesAgent(ts.Client(), ts.URL, "correct-token") {
+		t.Fatal("an arbitrary HTTP 400 must not be accepted as MiniProbe authentication")
+	}
+}
+
+func TestLocalServerMatchesAgentRejectsUnhealthyServer(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer ts.Close()
+
+	if localServerMatchesAgent(ts.Client(), ts.URL, "correct-token") {
+		t.Fatal("unhealthy local Server should not be selected")
+	}
 }
 
 func TestReportEndpointsUseOnlyLoopbackForServerHost(t *testing.T) {

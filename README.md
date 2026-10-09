@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前版本：`v0.4.16`
+当前开发版本：`v0.4.17-alpha`（待发布）；最近稳定版本：`v0.4.16`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -712,3 +712,12 @@ L
 MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `长期`，而不是显示一个很大的“剩余天数”。普通节点仍使用 `YYYY-MM-DD`。
 
 目前不追求商用规模，也不加入远程服务器管理功能。
+
+
+## v0.4.17-alpha（待发布）：防止本机 Server 误识别
+
+修复 Agent 在被监控 VPS 同时运行了另一套 MiniProbe Server 时，仅凭 `admin.sock` 和 `/healthz` 成功便错误选择 `127.0.0.1:28888`，导致持续 HTTP 401 离线的问题。
+
+现在只有本机 Server **实际接受当前 Agent 的 Bearer Token** 时，才允许通过 loopback 上报；否则继续使用签名策略或安装配置给出的正确接入地址。身份验证只发送不完整 JSON，不写入正常报告、不修改节点或流量计数。
+
+此前已添加的 `/etc/systemd/system/miniprobe-agent.service.d/force-remote.conf` 临时绕过配置，可在部署新 Agent 且验证正常后移除。
