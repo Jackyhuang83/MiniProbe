@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.17-alpha`（待发布）；最近稳定版本：`v0.4.16`
+当前开发版本：`v0.4.18-alpha`（开发分支，待测试）；最近已发布版本：`v0.4.17-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -721,3 +721,14 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 现在只有本机 Server **实际接受当前 Agent 的 Bearer Token** 时，才允许通过 loopback 上报；否则继续使用签名策略或安装配置给出的正确接入地址。身份验证只发送不完整 JSON，不写入正常报告、不修改节点或流量计数。
 
 此前已添加的 `/etc/systemd/system/miniprobe-agent.service.d/force-remote.conf` 临时绕过配置，可在部署新 Agent 且验证正常后移除。
+
+
+## v0.4.18-alpha（开发中）：出口 ASN 与平台检测
+
+- 节点卡片增加当前出口 ASN 与 ASN 机构名称（Team Cymru），不显示原始出口 IP。
+- Agent 每 12 小时使用 Cloudflare Trace 检测直接出口 IP/国家；原始出口 IP 仅瞬时上传到 Server，用于解析 ASN，不保存到数据库、不出现在 Dashboard API。
+- 检测 ChatGPT、Gemini、Claude、Netflix、Disney+、YouTube、TikTok、Google 搜索、Reddit；单请求 7 秒超时、最多读取 128 KiB，最多 3 路并发。
+- **可用**、**可访问**、**受限**、**不可用**与**待确认**严格区分。网站可访问不等于登录/播放解锁。节点离线或结果超过 24 小时则灰显历史结果。
+- 不推断 IP 是否属于家宽、IDC、原生、广播或“纯净 IP”；ASN 机构名称不是 IP 类型或信誉评分。
+- 无新依赖、无第三方脚本下载、无公网管理接口；保留旧 Agent 与月流量计数的兼容性。
+- 开发版本须通过 Go 测试、静态检查和 IPv6-only/NAT 实机回归后才允许发布。
