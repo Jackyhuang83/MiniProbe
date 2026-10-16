@@ -39,7 +39,12 @@ func collectPlatformSnapshot() platformSnapshot {
 			TLSHandshakeTimeout: 4 * time.Second,
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 3 || req.URL.Scheme != "https" {
+			if len(via) >= 3 || req.URL.Scheme != "https" || len(via) == 0 {
+				return http.ErrUseLastResponse
+			}
+			// Never follow a third-party redirect to internal endpoints or
+			// an unrelated host: these are fixed informational probes.
+			if !samePlatformDomain(via[0].URL.Hostname(), req.URL.Hostname()) {
 				return http.ErrUseLastResponse
 			}
 			return nil
@@ -86,6 +91,21 @@ func collectPlatformSnapshot() platformSnapshot {
 	snap.Results = results
 	snap.CheckedAt = time.Now().UTC()
 	return snap
+}
+
+// A redirect is only allowed within the original service's DNS zone.
+func samePlatformDomain(a, b string) bool {
+	a, b = strings.ToLower(a), strings.ToLower(b)
+	if a == b {
+		return true
+	}
+	for _, zone := range []string{"openai.com", "google.com", "claude.ai", "netflix.com", "disneyplus.com", "youtube.com", "tiktok.com", "reddit.com", "cloudflare.com"} {
+		inZone := func(host string) bool { return host == zone || strings.HasSuffix(host, "."+zone) }
+		if inZone(a) && inZone(b) {
+			return true
+		}
+	}
+	return false
 }
 
 func platformGet(client *http.Client, address string) (int, string, string) {
