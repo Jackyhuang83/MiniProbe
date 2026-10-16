@@ -182,7 +182,7 @@ func checkGemini(c *http.Client) common.PlatformCheck {
 	}
 	region := m[1]
 	switch region {
-	case "CHN", "RUS", "BLR", "CUB", "IRN", "PRK", "SYR":
+	case "CHN", "RUS", "BLR", "CUB", "IRN", "PRK", "SYR", "HKG", "MAC":
 		return platformResult("limited", "检测地区可能受限制", region)
 	default:
 		return platformResult("yes", "地区服务页可用，未验证登录", region)
