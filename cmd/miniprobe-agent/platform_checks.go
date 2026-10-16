@@ -172,8 +172,8 @@ func checkChatGPT(c *http.Client) common.PlatformCheck {
 var geminiRegion = regexp.MustCompile(`,2,1,200,"([A-Z]{3})"`)
 
 func checkGemini(c *http.Client) common.PlatformCheck {
-	status, body, _ := platformGet(c, "https://gemini.google.com/app")
-	if status != 200 {
+	status, body, finalURL := platformGet(c, "https://gemini.google.com/app")
+	if status != 200 || !strings.HasPrefix(finalURL, "https://gemini.google.com/") {
 		return platformResult("unknown", "未取得有效地区证据", "")
 	}
 	m := geminiRegion.FindStringSubmatch(body)
@@ -202,9 +202,13 @@ func checkClaude(c *http.Client) common.PlatformCheck {
 }
 
 func checkNetflix(c *http.Client) common.PlatformCheck {
-	a, _, _ := platformGet(c, "https://www.netflix.com/title/81280792")
-	b, _, _ := platformGet(c, "https://www.netflix.com/title/70143836")
-	if a == 200 || b == 200 {
+	a, aBody, aURL := platformGet(c, "https://www.netflix.com/title/81280792")
+	b, bBody, bURL := platformGet(c, "https://www.netflix.com/title/70143836")
+	validTitle := func(status int, body, url, id string) bool {
+		return status == 200 && strings.Contains(url, "/title/"+id) &&
+			strings.Contains(strings.ToLower(body), "netflix")
+	}
+	if validTitle(a, aBody, aURL, "81280792") || validTitle(b, bBody, bURL, "70143836") {
 		return platformResult("yes", "地区版权片名页可访问，播放未验证", "")
 	}
 	if a == 404 && b == 404 {
@@ -260,8 +264,8 @@ func checkTikTok(c *http.Client) common.PlatformCheck {
 }
 
 func checkGoogle(c *http.Client) common.PlatformCheck {
-	status, body, _ := platformGet(c, "https://www.google.com/search?q=MiniProbe")
-	if status == 200 && strings.Contains(strings.ToLower(body), "google") {
+	status, body, finalURL := platformGet(c, "https://www.google.com/search?q=MiniProbe")
+	if status == 200 && strings.Contains(finalURL, "/search?") && strings.Contains(strings.ToLower(body), "google") {
 		return platformResult("reachable", "Google 搜索页面可访问", "")
 	}
 	return platformResult("unknown", "搜索访问未确认", "")
