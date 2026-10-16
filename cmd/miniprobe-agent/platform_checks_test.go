@@ -72,3 +72,14 @@ func TestNetflixFilmPages(t *testing.T) {
 		t.Fatalf("expected available title signal: %+v", got)
 	}
 }
+
+func TestPlatformRedirectIsolation(t *testing.T) {
+	if !samePlatformDomain("www.netflix.com", "help.netflix.com") {
+		t.Fatal("same provider should be permitted")
+	}
+	for _, other := range []string{"127.0.0.1", "169.254.169.254", "netflix.com.evil.example", "youtube.com"} {
+		if samePlatformDomain("www.netflix.com", other) {
+			t.Fatalf("cross-provider or local redirect must be rejected: %s", other)
+		}
+	}
+}
