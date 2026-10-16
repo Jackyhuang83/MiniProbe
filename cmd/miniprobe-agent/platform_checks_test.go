@@ -25,15 +25,12 @@ func TestParseTraceAndPlatformCountry(t *testing.T) {
 		t.Fatalf("unexpected trace %v", v)
 	}
 	for _, invalid := range []string{"", "ZZZ", "JP1", "T1", "xx"} {
-		if invalid == "xx" { // two-letter country codes are case-insensitive
-			if platformCountry(invalid) != "XX" { // XX is intentionally unknown
-				// Unknown is never a valid country label.
-			}
-			continue
-		}
 		if platformCountry(invalid) != "" {
 			t.Fatalf("should reject country %q", invalid)
 		}
+	}
+	if platformCountry("jp") != "JP" {
+		t.Fatal("known country codes should normalize to uppercase")
 	}
 }
 
