@@ -15,6 +15,15 @@ type ProbeResult struct {
 	LossHistory    []int   `json:"loss_history,omitempty"`    // 0=0% 1=minor 2=major 3=100%
 }
 
+// PlatformCheck distinguishes verified service behavior from simple website reachability.
+// Status: yes (strong evidence), reachable, limited, no (explicit restriction), unknown.
+type PlatformCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Region string `json:"region,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
 type RouteHop struct {
 	Hop int    `json:"hop"`
 	IP  string `json:"ip"`
@@ -88,6 +97,10 @@ type Report struct {
 	ProbeAt       time.Time       `json:"probe_at,omitempty"`
 	RouteAt       time.Time       `json:"route_at,omitempty"`
 	Routes        []RouteResult   `json:"routes,omitempty"`
+	PlatformAt    time.Time       `json:"platform_at,omitempty"`
+	Platforms     []PlatformCheck `json:"platforms,omitempty"`
+	EgressIP      string          `json:"egress_ip,omitempty"` // transient, stripped before persistence
+	EgressCountry string          `json:"egress_country,omitempty"`
 	Info          StaticInfo      `json:"info"`
 	Metrics       Metrics         `json:"metrics"`
 	Traffic       TrafficSnapshot `json:"traffic"`
@@ -173,6 +186,8 @@ type NodeView struct {
 	Currency            string    `json:"currency"`
 	ExpireAt            string    `json:"expire_at"`
 	Tags                []string  `json:"tags"`
+	ASN                 string    `json:"asn,omitempty"`
+	ASNName             string    `json:"asn_name,omitempty"`
 	RouteStatus         string    `json:"route_status,omitempty"`
 	RouteChangedCount   int       `json:"route_changed_count,omitempty"`
 	RouteLastChecked    time.Time `json:"route_last_checked,omitempty"`
