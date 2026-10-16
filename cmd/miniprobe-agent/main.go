@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.17-alpha"
+	agentVersion         = "0.4.18-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
@@ -169,6 +169,17 @@ func main() {
 	lastRouteKey := ""
 	lastRouteAt := time.Time{}
 	var lastRoutes []common.RouteResult
+	var platformMu sync.RWMutex
+	var platformState platformSnapshot
+	go func() {
+		for {
+			snapshot := collectPlatformSnapshot()
+			platformMu.Lock()
+			platformState = snapshot
+			platformMu.Unlock()
+			time.Sleep(platformScanInterval)
+		}
+	}()
 	lastUpgradeRequest := ""
 	lastUpgradeAttempt := time.Time{}
 
@@ -223,9 +234,14 @@ func main() {
 		reportRouteAt := lastRouteAt
 		reportRoutes := append([]common.RouteResult(nil), lastRoutes...)
 		routeMu.RUnlock()
+		platformMu.RLock()
+		reportPlatform := platformState
+		platformMu.RUnlock()
 		rep := common.Report{
 			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: configuredEndpoint, Capabilities: []string{selfUpdateCapability}, PolicyVersion: state.PolicyVersion,
 			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol, ProbeAt: lastProbeAt, RouteAt: reportRouteAt, Routes: reportRoutes,
+			PlatformAt: reportPlatform.CheckedAt, Platforms: append([]common.PlatformCheck(nil), reportPlatform.Results...),
+			EgressIP: reportPlatform.EgressIP, EgressCountry: reportPlatform.EgressCountry,
 			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
 		}
 

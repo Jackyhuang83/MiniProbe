@@ -43,8 +43,8 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.17-alpha"
-	agentTargetVersion   = "0.4.17-alpha"
+	serverVersion        = "0.4.18-alpha"
+	agentTargetVersion   = "0.4.18-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
 	defaultAdminSock     = "/run/miniprobe/admin.sock"
@@ -239,6 +239,9 @@ type server struct {
 
 	asnMu    sync.Mutex
 	asnCache map[string]asnCacheEntry
+
+	identityMu    sync.Mutex
+	identityWatch map[string]nodeASNWatch
 
 	loginMu  sync.Mutex
 	failures map[string]loginFailures
@@ -520,8 +523,19 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	// Raw traceroute hop IPs are transient input for Server-side ASN mapping.
 	// Never persist them in the main database or expose them through nodesAPI.
 	storedReport.Routes = nil
+	storedReport.EgressIP = "" // never retain raw public egress addresses
+	storedReport.EgressCountry = boundedCountry(rep.EgressCountry)
+	storedReport.Platforms = boundedPlatforms(rep.Platforms)
+	if storedReport.PlatformAt.IsZero() {
+		storedReport.PlatformAt = previous.PlatformAt
+		storedReport.Platforms = previous.Platforms
+	}
+	if storedReport.EgressCountry == "" {
+		storedReport.EgressCountry = previous.EgressCountry
+	}
 	nv := common.NodeView{
 		Report: storedReport, DisplayName: cfg.DisplayName, Online: true, ObservedIP: remoteIP(r.RemoteAddr), LastSeen: now,
+		ASN: previous.ASN, ASNName: previous.ASNName,
 		MonthlyTrafficLimit: cfg.MonthlyTrafficLimit, TrafficDirection: cfg.TrafficDirection,
 		TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZ: formatTZOffset(cfg.TrafficResetTZMinutes),
 		ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
@@ -568,6 +582,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Unlock()
 
+	s.enqueueNodeASN(rep.NodeID, rep.EgressIP)
 	s.ingestProbeSample(rep.NodeID, rep.ProbeAt, rep.ProbeProtocol, rep.Probes)
 	s.enqueueRouteSnapshot(rep.NodeID, rep.RouteAt, rep.Routes)
 	for _, msg := range messages {

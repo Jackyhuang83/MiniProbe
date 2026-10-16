@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.17-alpha';
+const UI_VERSION='0.4.18-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -173,6 +173,35 @@ function routeStatus(n){
   return {cls:'collecting',text:'线路基准采集中'};
 }
 
+
+function networkIdentity(n){
+  const asn=String(n.asn||'').trim(),org=String(n.asn_name||'').trim();
+  const country=String(n.egress_country||'').trim();
+  const company=asn?esc(asn)+(org?' · '+esc(org):' · 机构待识别'):'ASN 待识别';
+  const location=country?'出口地区 '+esc(country)+'（Cloudflare）':'出口地区待识别';
+  return '<div class="identity-strip"><span class="identity-asn" title="当前出口 ASN 与 Team Cymru 发布的 AS Name，不代表 IP 类型或法律归属">'+company+'</span><span class="identity-region">'+location+'</span></div>';
+}
+
+function platformPanel(n){
+  const items=Array.isArray(n.platforms)?n.platforms:[];
+  const checked=Date.parse(n.platform_at||'');
+  const stale=!n.online||!Number.isFinite(checked)||Date.now()-checked>24*3600*1000;
+  const age=Number.isFinite(checked)?new Date(checked).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+  if(!items.length){
+    return '<div class="unlock-panel"><span class="unlock-heading">平台解锁 · 可用性</span><span class="unlock-wait">等待 Agent 检测（旧版需升级）</span></div>';
+  }
+  const names={yes:'可用',reachable:'可访问',limited:'受限',no:'不可用',unknown:'待确认'};
+  const badges=items.slice(0,12).map(p=>{
+    const value=String(p.status||'unknown');
+    const status=['yes','reachable','limited','no'].includes(value)?value:'unknown';
+    const region=p.region?' '+esc(p.region):'';
+    const label=names[status]||'待确认';
+    const hint=esc(p.detail||'');
+    return '<span class="unlock-pill '+(stale?'stale':status)+'" title="'+hint+'">'+esc(p.name||'未知')+' '+label+region+'</span>';
+  }).join('');
+  return '<div class="unlock-panel"><div class="unlock-top"><span class="unlock-heading">平台解锁 · 可用性</span><span class="unlock-when">'+(stale?'历史结果 · ':'')+esc(age)+'</span></div><div class="unlock-pills">'+badges+'</div></div>';
+}
+
 function card(n){
   const m=n.metrics||{},i=n.info||{},t=n.traffic||{},os=osIdentity(i.os),exp=expiryInfo(n.expire_at),price=priceText(n),region=regionCode(n);
   const name=n.display_name||n.node_id,route=routeStatus(n);
@@ -207,6 +236,8 @@ function card(n){
       ${probeProtocol==='OFF'?'<div class="small waiting">线路测试已关闭</div>':((n.probes||[]).map(probe).join('')||'<div class="small waiting">等待线路探测数据…</div>')}
     </div>
 
+    ${networkIdentity(n)}
+    ${platformPanel(n)}
     <div class="route-strip"><span class="route-state ${route.cls}">${route.text}</span><a class="route-link" href="${UI_BASE}/network.html?id=${encodeURIComponent(n.node_id)}">查看线路详情 ›</a></div>
     ${tagHtml?`<div class="footer">${tagHtml}</div>`:''}
   </article>`;
