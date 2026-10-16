@@ -86,17 +86,23 @@ func lookupASNName(asn string) string {
 		return ""
 	}
 	for _, record := range records {
-		parts := strings.Split(record, "|")
-		if len(parts) < 5 || strings.TrimSpace(parts[0]) != num {
-			continue
+		if name := parseASNNameRecord(record, num); name != "" {
+			return name
 		}
-		name := strings.TrimSpace(parts[4])
-		// Keep DB and Dashboard bounded, including unexpectedly long TXT data.
-		runes := []rune(name)
-		if len(runes) > 96 {
-			name = string(runes[:96])
-		}
-		return name
 	}
 	return ""
+}
+
+func parseASNNameRecord(record, number string) string {
+	parts := strings.Split(record, "|")
+	if len(parts) < 5 || strings.TrimSpace(parts[0]) != number {
+		return ""
+	}
+	name := strings.TrimSpace(parts[4])
+	// Keep DB and Dashboard bounded, including unexpectedly long TXT data.
+	runes := []rune(name)
+	if len(runes) > 96 {
+		name = string(runes[:96])
+	}
+	return name
 }
