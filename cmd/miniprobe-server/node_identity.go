@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Jackyhuang83/MiniProbe/internal/common"
 )
 
 type nodeASNWatch struct {
@@ -105,4 +107,49 @@ func parseASNNameRecord(record, number string) string {
 		name = string(runes[:96])
 	}
 	return name
+}
+
+func boundedPlatforms(items []common.PlatformCheck) []common.PlatformCheck {
+	if len(items) == 0 {
+		return nil
+	}
+	allowed := map[string]bool{"ChatGPT": true, "Gemini": true, "Claude": true,
+		"Netflix": true, "Disney+": true, "YouTube": true,
+		"TikTok": true, "Google": true, "Reddit": true}
+	seen := make(map[string]bool, 9)
+	out := make([]common.PlatformCheck, 0, 9)
+	for _, item := range items {
+		if !allowed[item.Name] || seen[item.Name] {
+			continue
+		}
+		seen[item.Name] = true
+		switch item.Status {
+		case "yes", "reachable", "limited", "no", "unknown":
+		default:
+			item.Status = "unknown"
+		}
+		item.Region = boundedCountry(item.Region)
+		runes := []rune(item.Detail)
+		if len(runes) > 96 {
+			item.Detail = string(runes[:96])
+		}
+		out = append(out, item)
+		if len(out) >= 9 {
+			break
+		}
+	}
+	return out
+}
+
+func boundedCountry(raw string) string {
+	code := strings.ToUpper(strings.TrimSpace(raw))
+	if len(code) < 2 || len(code) > 3 {
+		return ""
+	}
+	for _, c := range code {
+		if c < 'A' || c > 'Z' {
+			return ""
+		}
+	}
+	return code
 }
