@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.17-alpha';
+const UI_VERSION='0.4.18-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -173,6 +173,27 @@ function routeStatus(n){
   return {cls:'collecting',text:'线路基准采集中'};
 }
 
+
+const unlockLabels={chatgpt:'ChatGPT',gemini:'Gemini',claude:'Claude',google:'Google 搜索',netflix:'Netflix',disney:'Disney+',youtube:'YouTube Premium',tiktok:'TikTok',reddit:'Reddit'};
+const unlockStates={reachable:'可访问',limited:'受限',blocked:'地区不可用',unknown:'未知'};
+function asnRow(n){
+  const i=n.identity||{}, items=[['V4',i.ipv4],['V6',i.ipv6]];
+  const parts=items.filter(x=>x[1]&&x[1].number).map(([family,v])=>
+    `<span class="asn-entry"><span class="asn-family">${family}</span><b>${esc(v.number)}</b><span class="asn-company" title="${esc(v.org||'公司未知')}">${esc(v.org||'公司待识别')}</span></span>`);
+  return `<div class="asn-row"><span class="panel-label">出口 ASN</span>${parts.join('')||'<span class="asn-missing">等待采集</span>'}</div>`;
+}
+function unlockRow(n){
+  const items=Array.isArray(n.unlock)?n.unlock:[];
+  if(!items.length) return '<div class="unlock-panel"><span class="panel-label">平台检测</span><span class="asn-missing">等待 Agent 检测</span></div>';
+  const chips=items.filter(x=>unlockLabels[x.service]).map(x=>{
+    const state=Object.prototype.hasOwnProperty.call(unlockStates,x.status)?x.status:'unknown';
+    const region=String(x.region||'').match(/^[A-Z]{2,3}$/)?' '+x.region:'';
+    const checked=x.checked_at?new Date(x.checked_at).toLocaleString():'';
+    return `<span class="unlock-chip ${state}" title="${esc(unlockStates[state])} · ${esc(checked)}">${esc(unlockLabels[x.service])}${esc(region)}<span class="unlock-indicator">${esc(unlockStates[state])}</span></span>`;
+  }).join('');
+  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${items.length} 项</div><div class="unlock-chips">${chips}</div></div>`;
+}
+
 function card(n){
   const m=n.metrics||{},i=n.info||{},t=n.traffic||{},os=osIdentity(i.os),exp=expiryInfo(n.expire_at),price=priceText(n),region=regionCode(n);
   const name=n.display_name||n.node_id,route=routeStatus(n);
@@ -207,6 +228,8 @@ function card(n){
       ${probeProtocol==='OFF'?'<div class="small waiting">线路测试已关闭</div>':((n.probes||[]).map(probe).join('')||'<div class="small waiting">等待线路探测数据…</div>')}
     </div>
 
+    ${asnRow(n)}
+    ${unlockRow(n)}
     <div class="route-strip"><span class="route-state ${route.cls}">${route.text}</span><a class="route-link" href="${UI_BASE}/network.html?id=${encodeURIComponent(n.node_id)}">查看线路详情 ›</a></div>
     ${tagHtml?`<div class="footer">${tagHtml}</div>`:''}
   </article>`;
