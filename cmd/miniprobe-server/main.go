@@ -524,6 +524,8 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	// Never persist them in the main database or expose them through nodesAPI.
 	storedReport.Routes = nil
 	storedReport.EgressIP = "" // never retain raw public egress addresses
+	storedReport.EgressCountry = boundedCountry(rep.EgressCountry)
+	storedReport.Platforms = boundedPlatforms(rep.Platforms)
 	if storedReport.PlatformAt.IsZero() {
 		storedReport.PlatformAt = previous.PlatformAt
 		storedReport.Platforms = previous.Platforms
