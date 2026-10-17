@@ -32,10 +32,22 @@ main{padding:10px;max-width:1450px;margin:auto}.grid{display:grid;grid-template-
 .asn-company{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#abb9c8}
 .asn-missing{font-size:10px;color:#728094}
 .unlock-panel{margin-top:7px}.unlock-panel>.panel-label{display:block;margin-bottom:5px}
-.unlock-chips{display:flex;flex-wrap:wrap;gap:4px}
-.unlock-chip{display:inline-flex;gap:5px;align-items:center;background:#223042;border:1px solid #334153;border-radius:6px;padding:3px 6px;font-size:10px;color:#d7e3ee;line-height:1.25}
-.unlock-indicator{font-size:9px;opacity:.83}
-.unlock-chip.reachable{background:rgba(25,160,112,.11);border-color:rgba(25,160,112,.25);color:#81dcb3}
-.unlock-chip.limited{background:rgba(218,165,55,.10);border-color:rgba(218,165,55,.22);color:#e5c777}
-.unlock-chip.blocked{background:rgba(219,83,95,.10);border-color:rgba(219,83,95,.24);color:#eca0a6}
-.unlock-chip.unknown{background:#1c2937;color:#91a0b0}
+.unlock-chips{display:flex;flex-wrap:wrap;gap:5px}
+.unlock-chip{display:inline-flex;gap:5px;align-items:center;min-width:0;background:#1d2a38;border:1px solid #334153;border-radius:6px;padding:4px 7px;font-size:10px;color:#d7e3ee;line-height:1.2;white-space:nowrap}
+.unlock-state-icon{width:14px;height:14px;flex:none;display:block}
+.unlock-state-icon circle{fill:currentColor}
+.unlock-state-icon g{color:#10202c}
+.unlock-name{font-weight:640;letter-spacing:0}
+.unlock-region{font-size:9px;font-weight:790;letter-spacing:.25px;opacity:.88}
+.unlock-chip.reachable{background:rgba(34,170,119,.10);border-color:rgba(34,170,119,.27);color:#d5eee5}
+.unlock-chip.reachable .unlock-state-icon{color:#39ce93}
+.unlock-chip.reachable .unlock-region{color:#76deb2}
+.unlock-chip.limited{background:rgba(219,158,55,.11);border-color:rgba(219,158,55,.27);color:#efe5ce}
+.unlock-chip.limited .unlock-state-icon{color:#e2ad48}
+.unlock-chip.limited .unlock-region{color:#f0c77e}
+.unlock-chip.blocked{background:rgba(216,73,86,.10);border-color:rgba(216,73,86,.27);color:#f0d6da}
+.unlock-chip.blocked .unlock-state-icon{color:#ee6b7b}
+.unlock-chip.blocked .unlock-region{color:#f19ca6}
+.unlock-chip.unknown{background:#1c2937;border-color:#304052;color:#a7b5c5}
+.unlock-chip.unknown .unlock-state-icon{color:#8b9bae}
+.unlock-chip.unknown .unlock-region{color:#b4c0cd}

@@ -13,3 +13,25 @@ func TestInspectionParsersAreConservative(t *testing.T) {
 	if netflixTitleStatus(200,404)!="reachable" { t.Fatal("visible title must be reachable, not verified playback") }
 	if netflixTitleStatus(403,403)!="unknown" { t.Fatal("WAF denial must not be called geo-blocking") }
 }
+
+func TestMyTVSuperRegionProbeDoesNotConfuseHomepageWithUnlock(t *testing.T) {
+	cases := []struct{ body, status, region string }{
+		{`{"region":1}`, "reachable", "HK"},
+		{`{"region":"1"}`, "reachable", "HK"},
+		{`{"region":0}`, "blocked", ""},
+		{`{"region":"0"}`, "blocked", ""},
+		{`{"region":2}`, "unknown", ""},
+		{`{"region":null}`, "unknown", ""},
+		{`{"region":true}`, "unknown", ""},
+		{`{"region":"HK"}`, "unknown", ""},
+		{`{"status":"ok"}`, "unknown", ""},
+		{`<html><title>myTV SUPER</title></html>`, "unknown", ""},
+		{"", "unknown", ""},
+	}
+	for _, tc := range cases {
+		status, region := myTVSuperRegionStatus(tc.body)
+		if status != tc.status || region != tc.region {
+			t.Errorf("body %q status/region=%q/%q; want %q/%q", tc.body, status, region, tc.status, tc.region)
+		}
+	}
+}

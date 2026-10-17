@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net"
 	"net/http"
@@ -46,7 +47,7 @@ func inspectNode() inspectionSnapshot {
 	var snap inspectionSnapshot
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	names := []string{"chatgpt", "gemini", "claude", "google", "netflix", "disney", "youtube", "tiktok", "reddit"}
+	names := []string{"chatgpt", "gemini", "claude", "google", "netflix", "disney", "youtube", "tiktok", "reddit", "mytvsuper"}
 	results := make([]common.UnlockResult, len(names))
 	// Small bounded concurrency: no background upload, speed test or video transfer.
 	gate := make(chan struct{}, 3)
@@ -165,8 +166,34 @@ func inspectPlatform(client *http.Client, service string) common.UnlockResult {
 	case "reddit":
 		status, body := inspectFetch(client, "https://www.reddit.com/")
 		if status == 200 && len(body) > 0 { r.Status = "reachable" }
+	case "mytvsuper":
+		// The homepage can open worldwide and does NOT prove HK playback access.
+		// An unauthenticated regional session probe is only an indication of
+		// geographic eligibility; this does not establish DRM/paid entitlement.
+		status, body := inspectFetch(client, "https://www.mytvsuper.com/api/auth/getSession/self/")
+		if status == http.StatusOK {
+			r.Status, r.Region = myTVSuperRegionStatus(body)
+		}
 	}
 	return r
+}
+
+// The existing myTV SUPER session API reports HK geographical eligibility as
+// region=1 (RegionRestrictionCheck). Fail closed if the shape changes, if the
+// session is unavailable, or if region contains any unexpected value.
+func myTVSuperRegionStatus(body string) (status, region string) {
+	var response struct { Region json.RawMessage `json:"region"` }
+	if err := json.Unmarshal([]byte(body), &response); err != nil || len(response.Region) == 0 {
+		return "unknown", ""
+	}
+	switch strings.TrimSpace(string(response.Region)) {
+	case "1", `"1"`:
+		return "reachable", "HK"
+	case "0", `"0"`:
+		return "blocked", ""
+	default:
+		return "unknown", ""
+	}
 }
 
 func parseTraceRegion(body string) string {
