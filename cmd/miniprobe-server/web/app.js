@@ -174,8 +174,25 @@ function routeStatus(n){
 }
 
 
-const unlockLabels={chatgpt:'ChatGPT',gemini:'Gemini',claude:'Claude',google:'Google 搜索',netflix:'Netflix',disney:'Disney+',youtube:'YouTube Premium',tiktok:'TikTok',reddit:'Reddit'};
-const unlockStates={reachable:'可访问',limited:'受限',blocked:'地区不可用',unknown:'未知'};
+const unlockLabels={chatgpt:'ChatGPT',gemini:'Gemini',claude:'Claude',google:'Google',netflix:'Netflix',disney:'Disney+',youtube:'YouTube Premium',tiktok:'TikTok',reddit:'Reddit',mytvsuper:'MyTV SUPER'};
+const unlockStates={reachable:'可访问（未验证实际播放）',limited:'部分受限',blocked:'地区不可用',unknown:'结果未知'};
+const unlockGlyphs={
+  reachable:'<path d="m7 12.5 3.5 3.5L17.5 8"/>',
+  limited:'<path d="M7 12h10"/>',
+  blocked:'<path d="m8 8 8 8m0-8-8 8"/>',
+  unknown:'<path d="M9.6 9.5a2.6 2.6 0 0 1 5 1c0 1.6-2.5 2-2.5 3.7"/><path d="M12 17h.01"/>'
+};
+const unlockRegionAliases={JPN:'JP',CHN:'CN',HKG:'HK',MAC:'MO',TWN:'TW',USA:'US',GBR:'GB',SGP:'SG',DEU:'DE',KOR:'KR',FRA:'FR',CAN:'CA',AUS:'AU',RUS:'RU',IND:'IN',MYS:'MY',THA:'TH',IDN:'ID',VNM:'VN',PHL:'PH',NLD:'NL',CHE:'CH',ITA:'IT',ESP:'ES',BRA:'BR',TUR:'TR',ARE:'AE',IRN:'IR',CUB:'CU',PRK:'KP',SYR:'SY',BLR:'BY'};
+function unlockRegionCode(value){
+  const raw=String(value||'').trim().toUpperCase();
+  if(!/^[A-Z]{2,3}$/.test(raw)) return '';
+  return unlockRegionAliases[raw]||raw;
+}
+function unlockStateIcon(state){
+  // Inline SVG; no dependency on remote fonts, emoji appearance or a CDN.
+  return `<svg class="unlock-state-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="10"/><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${unlockGlyphs[state]}</g></svg>`;
+}
+
 function asnRow(n){
   const i=n.identity||{}, items=[['V4',i.ipv4],['V6',i.ipv6]];
   const parts=items.filter(x=>x[1]&&x[1].number).map(([family,v])=>
@@ -185,13 +202,16 @@ function asnRow(n){
 function unlockRow(n){
   const items=Array.isArray(n.unlock)?n.unlock:[];
   if(!items.length) return '<div class="unlock-panel"><span class="panel-label">平台检测</span><span class="asn-missing">等待 Agent 检测</span></div>';
-  const chips=items.filter(x=>unlockLabels[x.service]).map(x=>{
+  const chips=items.filter(x=>Object.prototype.hasOwnProperty.call(unlockLabels,x.service)).map(x=>{
     const state=Object.prototype.hasOwnProperty.call(unlockStates,x.status)?x.status:'unknown';
-    const region=String(x.region||'').match(/^[A-Z]{2,3}$/)?' '+x.region:'';
+    const region=unlockRegionCode(x.region);
     const checked=x.checked_at?new Date(x.checked_at).toLocaleString():'';
-    return `<span class="unlock-chip ${state}" title="${esc(unlockStates[state])} · ${esc(checked)}">${esc(unlockLabels[x.service])}${esc(region)}<span class="unlock-indicator">${esc(unlockStates[state])}</span></span>`;
+    const label=unlockLabels[x.service];
+    const detail=unlockStates[state];
+    const title=`${label} · ${detail}${region?' · '+region:''}${checked?' · '+checked:''}`;
+    return `<span class="unlock-chip ${state}" title="${esc(title)}" aria-label="${esc(title)}">${unlockStateIcon(state)}<span class="unlock-name">${esc(label)}</span>${region?`<span class="unlock-region">${esc(region)}</span>`:''}</span>`;
   }).join('');
-  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${items.length} 项</div><div class="unlock-chips">${chips}</div></div>`;
+  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${chips?items.length:0} 项</div><div class="unlock-chips">${chips}</div></div>`;
 }
 
 function card(n){
