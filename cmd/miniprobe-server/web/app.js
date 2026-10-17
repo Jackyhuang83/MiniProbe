@@ -207,7 +207,7 @@ function ipAttributeLine(label,data){
   const checked=value.checked_at?new Date(value.checked_at).toLocaleString():'';
   const kind={idc:'IDC · 数据中心',mobile:'移动网络',non_idc:'非 IDC · 家宽待核实',unknown:'未知'}[value.class]||'未知';
   const native='未知（服务商数据无法确认原生）';
-  const signals=[value.vpn?'VPN':'',value.proxy?'代理':'',value.tor?'Tor':''].filter(Boolean).join(' / ')||'未命中已知代理标记';
+  const signals=[value.vpn?'VPN':'',value.proxy?'代理':'',value.tor?'Tor':''].filter(Boolean).join(' / ')||'未报告已知代理风险';
   return `<div class="ip-attr-row"><b>${esc(label)}</b><div><span class="ip-attr-type">${esc(kind)}</span><span class="ip-attr-country">${esc(value.country||'')}</span><span class="ip-attr-detail">原生：${native} · ${value.state==='ok'?esc(signals):'暂无有效结果'}</span>${checked?`<span class="ip-attr-date">查询：${esc(checked)}（UTC 日限额）</span>`:'<span class="ip-attr-date">等待下一次出口 IP 采集</span>'}</div></div>`;
 }
 function ipAttributePanel(n){
