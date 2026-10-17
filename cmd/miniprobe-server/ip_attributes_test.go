@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,5 +86,45 @@ func TestIPAttributesRejectWrongIPAndNoFalseNative(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	if signal.Class != "non_idc" || signal.Native != "unknown" {
 		t.Fatalf("a non-hosting result must not be reported as confirmed residential/native: %+v",signal)
+	}
+}
+
+func TestIPAttributeSchedulingRequiresOptInAndDeDuplicates(t *testing.T) {
+	s := &server{
+		db: database{
+			Nodes: map[string]nodeConfig{"one": {ID: "one"}},
+			States: map[string]common.NodeView{"one": {}},
+		},
+		ipAttrMu: sync.Mutex{},
+		ipAttrPending: map[string]bool{},
+		ipAttrQueue: make(chan ipAttrJob, 4),
+	}
+	s.scheduleIPAttributes("one", "8.8.8.8", "2606:4700:4700::1111")
+	if len(s.ipAttrQueue) != 0 {
+		t.Fatal("disabled provider must not enqueue requests")
+	}
+	s.db.Settings.IPAttributesEnabled = true
+	s.scheduleIPAttributes("one", "8.8.8.8", "2606:4700:4700::1111")
+	s.scheduleIPAttributes("one", "8.8.8.8", "2606:4700:4700::1111")
+	if len(s.ipAttrQueue) != 2 {
+		t.Fatalf("dual stack should enqueue once per family, not per report, got %d", len(s.ipAttrQueue))
+	}
+	// A persisted timestamp blocks a repeat even after an in-memory pending
+	// state was cleared (e.g. after a successful lookup or restart).
+	s.ipAttrPending = map[string]bool{}
+	view := s.db.States["one"]
+	now := time.Now().UTC()
+	view.IPAttributes.IPv4.CheckedAt = now
+	view.IPAttributes.IPv6.CheckedAt = now
+	s.db.States["one"] = view
+	s.scheduleIPAttributes("one", "8.8.8.8", "2606:4700:4700::1111")
+	if len(s.ipAttrQueue) != 2 {
+		t.Fatal("already-checked UTC day must not schedule additional lookups")
+	}
+	s.db.Settings.IPAttributesEnabled = false
+	s.ipAttrPending = map[string]bool{}
+	s.scheduleIPAttributes("one", "8.8.8.8", "2606:4700:4700::1111")
+	if len(s.ipAttrQueue) != 2 {
+		t.Fatal("disabling provider must stop scheduling")
 	}
 }
