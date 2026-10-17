@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.22-alpha`（待测试、待发布）；最近已发布版本：`v0.4.20-alpha`（v0.4.21-alpha Server 更新菜单待合并发布）
+当前开发版本：`v0.4.22-alpha`（待测试、待发布）；最近已发布版本：`v0.4.21-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -762,4 +762,4 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 平台或站点请求有直接地区数据时继续显示例如 `JP`、`HK`，并标记 `region_source=site`；仅无数据时显示 **`≈JP`**，标记 `region_source=egress`。`≈` 只是默认出口地区参考，不等于平台实际解锁地区；浮层说明来源。
 - 出口地区服务无法访问或返回无效 `loc` 时仍不填写地区；不会推断 Netflix 可播放地区、MyTV SUPER DRM / 付费解锁情况。
 - 兼容旧 Agent 未发送 `region_source` 的报告；Server 保持 Dashboard 只读、ASN、月流量累计不变。更新数据来源需升级 Agent 到 `v0.4.22-alpha`。
-- 本版本在尚未合并的 v0.4.21-alpha Server 菜单更新工作上继续开发，**先发布 v0.4.21-alpha，后发布 v0.4.22-alpha**。
+- 本版本在已发布的 v0.4.21-alpha Server 菜单更新基础上开发，按版本顺序发布。
