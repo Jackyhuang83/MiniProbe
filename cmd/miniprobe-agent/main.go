@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.17-alpha"
+	agentVersion         = "0.4.18-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
@@ -158,6 +158,19 @@ func main() {
 	prevCPU := readCPU()
 	prevNet := readNet(c.Interface)
 	client := newHTTPClient()
+	// Read-only capability checks are independent of the fast metrics loop.
+	// This snapshot is in-memory only; traffic accounting is untouched.
+	var inspectionMu sync.RWMutex
+	inspection := inspectionSnapshot{}
+	go func() {
+		for {
+			snap := inspectNode()
+			inspectionMu.Lock()
+			inspection = snap
+			inspectionMu.Unlock()
+			time.Sleep(12 * time.Hour)
+		}
+	}()
 	lastSave := time.Time{}
 	lastErrLog := time.Time{}
 	reportingFailed := false
@@ -223,10 +236,15 @@ func main() {
 		reportRouteAt := lastRouteAt
 		reportRoutes := append([]common.RouteResult(nil), lastRoutes...)
 		routeMu.RUnlock()
+		inspectionMu.RLock()
+		recentInspection := inspection
+		inspectionMu.RUnlock()
 		rep := common.Report{
 			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: configuredEndpoint, Capabilities: []string{selfUpdateCapability}, PolicyVersion: state.PolicyVersion,
 			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol, ProbeAt: lastProbeAt, RouteAt: reportRouteAt, Routes: reportRoutes,
-			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes, At: time.Now().UTC(),
+			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes,
+			Unlock: recentInspection.Unlock, EgressIPv4: recentInspection.IPv4, EgressIPv6: recentInspection.IPv6,
+			At: time.Now().UTC(),
 		}
 
 		// When the Agent runs on the MiniProbe Server host, report over loopback

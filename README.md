@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.17-alpha`（待发布）；最近稳定版本：`v0.4.16`
+当前开发版本：`v0.4.18-alpha`（待测试、待发布）；最近已发布版本：`v0.4.17-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -721,3 +721,11 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 现在只有本机 Server **实际接受当前 Agent 的 Bearer Token** 时，才允许通过 loopback 上报；否则继续使用签名策略或安装配置给出的正确接入地址。身份验证只发送不完整 JSON，不写入正常报告、不修改节点或流量计数。
 
 此前已添加的 `/etc/systemd/system/miniprobe-agent.service.d/force-remote.conf` 临时绕过配置，可在部署新 Agent 且验证正常后移除。
+
+## v0.4.18-alpha（开发版，待验证）
+
+- 新增出口 IPv4/IPv6 的 ASN 编号及路由公司名称：Agent 每 12 小时通过固定 HTTPS IP 回显端点发现出口地址，Server 复用 Team Cymru DNS 查询 ASN 及公司名称。公网 IP 仅在认证上报中暂时传输；不写入数据库、不暴露给 Dashboard。
+- 新增平台状态：ChatGPT、Gemini、Claude、Google 搜索、Netflix、Disney+、YouTube Premium、TikTok、Reddit。后台低频探测、最多 3 个检测并发、单请求超时 8 秒、响应体最多 256 KiB；不下载视频或测速，不写逐次日志。
+- **结果不夸大**：仅验证页面/地区响应的检测显示「可访问」，不等于已登录、流媒体可播放或完整解锁；明确限制显示「地区不可用」，无法判定显示「未知」，Netflix 两个标题均 404 显示「受限」。
+- IP 属性保持此前经过验证的 V4/V6 出站路由标签，不根据 ASN 名称猜测「家宽、机房、原生、广播」。
+- 旧 Agent 可以继续上报资源和流量；新检测信息需将 Agent 更新至 v0.4.18-alpha。

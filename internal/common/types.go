@@ -77,6 +77,24 @@ type TrafficSnapshot struct {
 	ProtectionTriggered bool      `json:"protection_triggered"`
 }
 
+type UnlockResult struct {
+	Service   string    `json:"service"`
+	Status    string    `json:"status"`
+	Region    string    `json:"region,omitempty"`
+	CheckedAt time.Time `json:"checked_at"`
+}
+
+type ASNInfo struct {
+	Number string `json:"number,omitempty"`
+	Org    string `json:"org,omitempty"`
+}
+
+type NetworkIdentity struct {
+	IPv4      ASNInfo   `json:"ipv4"`
+	IPv6      ASNInfo   `json:"ipv6"`
+	CheckedAt time.Time `json:"checked_at,omitempty"`
+}
+
 type Report struct {
 	NodeID        string          `json:"node_id"`
 	AgentVersion  string          `json:"agent_version,omitempty"`
@@ -88,6 +106,9 @@ type Report struct {
 	ProbeAt       time.Time       `json:"probe_at,omitempty"`
 	RouteAt       time.Time       `json:"route_at,omitempty"`
 	Routes        []RouteResult   `json:"routes,omitempty"`
+	Unlock        []UnlockResult  `json:"unlock,omitempty"`
+	EgressIPv4    string          `json:"egress_ipv4,omitempty"` // transit only
+	EgressIPv6    string          `json:"egress_ipv6,omitempty"` // transit only
 	Info          StaticInfo      `json:"info"`
 	Metrics       Metrics         `json:"metrics"`
 	Traffic       TrafficSnapshot `json:"traffic"`
@@ -158,6 +179,7 @@ type ReportResponse struct {
 }
 
 type NodeView struct {
+	Identity NetworkIdentity `json:"identity"`
 	Report
 	DisplayName         string    `json:"display_name"`
 	Online              bool      `json:"online"`
