@@ -18,7 +18,7 @@ import (
 	"time"
 )
 
-const serverReleaseAPI = "https://api.github.com/repos/Jackyhuang83/MiniProbe/releases?per_page=20"
+const serverReleaseAPI = "https://api.github.com/repos/Jackyhuang83/MiniProbe/releases?per_page=5"
 const serverReleaseBase = "https://github.com/Jackyhuang83/MiniProbe/releases/download/"
 
 var serverUpdateVersionPattern = regexp.MustCompile("^v([0-9]+)\\.([0-9]+)\\.([0-9]+)(?:-(alpha|beta|rc)(?:[.-]([0-9]+))?)?$")
@@ -112,7 +112,14 @@ func fetchSmallUpdateText(client *http.Client, url string, limit int64) ([]byte,
 }
 
 func latestMiniProbeServerRelease(client *http.Client) (string, error) {
-	data, err := fetchSmallUpdateText(client, serverReleaseAPI, 128<<10)
+	return latestMiniProbeServerReleaseAt(client, serverReleaseAPI)
+}
+
+// Fetch a bounded page of recent releases. Each GitHub release includes
+// verbose assets and metadata, making even 20 entries exceed 128 KiB.
+// Keep a hard 1 MiB cap, but only request the most recent five releases.
+func latestMiniProbeServerReleaseAt(client *http.Client, releaseAPI string) (string, error) {
+	data, err := fetchSmallUpdateText(client, releaseAPI, 1<<20)
 	if err != nil {
 		return "", err
 	}
