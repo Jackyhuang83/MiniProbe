@@ -22,7 +22,7 @@ DATA_DIR=${MINIPROBE_DATA_DIR:-/var/lib/miniprobe}
 DOWNLOADS_DIR="$INSTALL_DIR/downloads"
 ADMIN_SOCKET=${MINIPROBE_ADMIN_SOCKET:-/run/miniprobe/admin.sock}
 BUNDLE_DIR=${MINIPROBE_BUNDLE_DIR:-}
-VERSION=${MINIPROBE_VERSION:-v0.4.20-alpha}
+VERSION=${MINIPROBE_VERSION:-v0.4.21-alpha}
 RELEASE_BASE=${MINIPROBE_RELEASE_BASE:-https://github.com/Jackyhuang83/MiniProbe/releases/download/$VERSION}
 PUBLIC_URL=${MINIPROBE_PUBLIC_URL:-}
 DASHBOARD_MODE=${MINIPROBE_DASHBOARD_MODE:-protected}
@@ -59,21 +59,53 @@ random_password() {
   fi
 }
 
-echo "[1/4] 安装 MiniProbe Server..."
-SERVER_NEW="$INSTALL_DIR/.miniprobe-server.new.$$"
-trap 'rm -f "$SERVER_NEW"' 0 1 15
-fetch "miniprobe-server-linux-$ARCH" "$SERVER_NEW"
-chmod 0755 "$SERVER_NEW"
-# Never truncate a running executable in place. Download to a temporary file
-# and atomically rename it over the old inode; the running process keeps the
-# old inode until the service is restarted below.
-mv -f "$SERVER_NEW" "$INSTALL_DIR/miniprobe-server"
-trap - 0 1 15
+echo "[1/4] 下载并校验 MiniProbe Server / Agent..."
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "缺少 sha256sum，不能验证更新文件；已中止，旧程序未修改。" >&2
+  exit 1
+fi
+STAGE_DIR=$(mktemp -d "$INSTALL_DIR/.release-stage-XXXXXXXX")
+trap 'rm -rf "$STAGE_DIR"' EXIT HUP INT TERM
+fetch "SHA256SUMS" "$STAGE_DIR/SHA256SUMS"
+
+verify_asset() {
+  name=$1
+  expected=$(awk -v wanted="$name" '$2==wanted {print $1}' "$STAGE_DIR/SHA256SUMS")
+  if [ -z "$expected" ]; then
+    echo "Release 校验清单缺少 $name；旧程序未修改。" >&2
+    exit 1
+  fi
+  actual=$(sha256sum "$STAGE_DIR/$name" | awk '{print $1}')
+  if [ "$expected" != "$actual" ]; then
+    echo "SHA256 校验失败：$name；旧程序未修改。" >&2
+    exit 1
+  fi
+}
+fetch "miniprobe-server-linux-$ARCH" "$STAGE_DIR/miniprobe-server-linux-$ARCH"
+verify_asset "miniprobe-server-linux-$ARCH"
 for a in amd64 arm64 armv7; do
-  echo "      准备 Agent linux/$a"
-  fetch "miniprobe-agent-linux-$a" "$DOWNLOADS_DIR/miniprobe-agent-linux-$a"
-  chmod 0755 "$DOWNLOADS_DIR/miniprobe-agent-linux-$a"
+  echo "      校验 Agent linux/$a"
+  fetch "miniprobe-agent-linux-$a" "$STAGE_DIR/miniprobe-agent-linux-$a"
+  verify_asset "miniprobe-agent-linux-$a"
 done
+
+# Keep one recovery copy until the running service proves its new version.
+if [ -f "$INSTALL_DIR/miniprobe-server" ]; then
+  cp -p "$INSTALL_DIR/miniprobe-server" "$STAGE_DIR/old-server"
+fi
+for a in amd64 arm64 armv7; do
+  name="miniprobe-agent-linux-$a"
+  if [ -f "$DOWNLOADS_DIR/$name" ]; then
+    cp -p "$DOWNLOADS_DIR/$name" "$STAGE_DIR/old-$name"
+  fi
+done
+for a in amd64 arm64 armv7; do
+  name="miniprobe-agent-linux-$a"
+  chmod 0755 "$STAGE_DIR/$name"
+  mv -f "$STAGE_DIR/$name" "$DOWNLOADS_DIR/$name"
+done
+chmod 0755 "$STAGE_DIR/miniprobe-server-linux-$ARCH"
+mv -f "$STAGE_DIR/miniprobe-server-linux-$ARCH" "$INSTALL_DIR/miniprobe-server"
 
 if [ -z "$PUBLIC_URL" ]; then
   IP=""
@@ -201,11 +233,47 @@ else
   echo "未检测到 systemd/OpenRC，无法自动安装服务。" >&2; exit 1
 fi
 
-echo "[3/4] 检查服务..."
-sleep 1
-if command -v curl >/dev/null 2>&1; then curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null || true; fi
+echo "[3/4] 校验运行中的版本..."
+VERIFIED=0
+PLAIN_VERSION=$(printf '%s' "$VERSION" | sed 's/^v//')
+if command -v curl >/dev/null 2>&1; then
+  # The root-only admin socket works in both Direct and CF Tunnel modes.
+  n=0
+  while [ "$n" -lt 20 ]; do
+    output=$(curl -fsS --max-time 3 --unix-socket "$ADMIN_SOCKET" \
+      "http://localhost/v1/server-version" 2>/dev/null || true)
+    case "$output" in
+      *'"server_version":"'"$PLAIN_VERSION"'"'*)
+        VERIFIED=1
+        break
+        ;;
+    esac
+    n=$((n+1))
+    sleep 1
+  done
+fi
+if [ "$VERIFIED" != "1" ]; then
+  echo "[错误] Server 新版本未能通过运行校验，不会报告安装成功。" >&2
+  if [ -f "$STAGE_DIR/old-server" ]; then
+    mv -f "$STAGE_DIR/old-server" "$INSTALL_DIR/miniprobe-server"
+    for a in amd64 arm64 armv7; do
+      name="miniprobe-agent-linux-$a"
+      if [ -f "$STAGE_DIR/old-$name" ]; then
+        mv -f "$STAGE_DIR/old-$name" "$DOWNLOADS_DIR/$name"
+      fi
+    done
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+      systemctl restart miniprobe-server || true
+    elif command -v rc-service >/dev/null 2>&1; then
+      rc-service miniprobe-server restart || true
+    fi
+    echo "已尝试恢复升级前程序，请检查服务。" >&2
+  fi
+  exit 1
+fi
 
 echo "[4/4] 完成"
+echo " 当前 Server 已确认运行: $VERSION"
 echo ""
 echo "============================================================"
 echo " MiniProbe 已安装"

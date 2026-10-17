@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.20-alpha`（待测试、待发布）；最近已发布版本：`v0.4.19-alpha`
+当前开发版本：`v0.4.21-alpha`（待测试、待发布）；最近已发布版本：`v0.4.20-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -746,3 +746,12 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - myTV SUPER 通过不需要登录的地区会话接口判断：`region=1` 代表 HK 地区可访问，`region=0` 代表地区不可用；接口异常、未知字段或地区无法判定时显示未知。此检测不代表账号、DRM、付费节目或实际视频播放一定可用。
 - 原有 9 项平台仍按现有信号判定；不把单纯网站可访问误写成完整解锁。ASN 信息及现有流量统计不变。
 - 更新展示 UI 需要 v0.4.20-alpha Server，更新 myTV SUPER 检测需要 v0.4.20-alpha Agent。可先单节点验证后集中升级。
+
+## v0.4.21-alpha：Server 本机更新菜单与安全校验
+
+- SSH 登录主 Server 后运行 `miniprobe`，新增 **13. Server 检查更新 / 升级**。检测官方 GitHub Releases 最新版本、对比当前 Server 版本，并要求明确输入 `YES` 才开始更新。
+- 只支持预定义的 MiniProbe 官方 Server / Agent 二进制，不接收任意命令或下载地址；校验 Release SHA256SUMS，先备份旧文件，原子替换，重启 Server，再通过仅本机的管理 Socket 验证**真实运行版本**。
+- 若新程序无法成功重启或运行版本不符合预期，尝试回滚旧 Server 和 Agent 文件；失败时明确报错，不谎称成功。新版本安装成功后管理菜单自动退出，用户重新运行 `miniprobe`。
+- 同步加强 `scripts/install-server.sh`：所有二进制在替换之前必须通过 SHA256 校验，且安装后需从本机管理 Socket 确认运行版本；验证失败时尝试恢复旧程序并报错。
+- **这是 Server 更新功能**，Agent 目标版本继续保持 `0.4.20-alpha`，无需让全部节点为了菜单更新而重装。
+- 由于旧版没有菜单 13，**首次升级至 v0.4.21-alpha 仍须执行一次官方安装脚本**；之后的新版本可在菜单 13 内进行 Server 更新。
