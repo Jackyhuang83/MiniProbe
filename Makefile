@@ -1,4 +1,4 @@
-VERSION ?= 0.4.22-alpha
+VERSION ?= 0.4.23-alpha
 LDFLAGS := -s -w
 .PHONY: build release test clean
 
