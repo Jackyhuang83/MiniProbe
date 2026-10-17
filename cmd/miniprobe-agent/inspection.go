@@ -47,6 +47,7 @@ func inspectNode() inspectionSnapshot {
 	var snap inspectionSnapshot
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	var egressRegion string
 	names := []string{"chatgpt", "gemini", "claude", "google", "netflix", "disney", "youtube", "tiktok", "reddit", "mytvsuper"}
 	results := make([]common.UnlockResult, len(names))
 	// Small bounded concurrency: no background upload, speed test or video transfer.
@@ -60,6 +61,22 @@ func inspectNode() inspectionSnapshot {
 			results[i] = inspectPlatform(inspectionClient(), name)
 		}(i, name)
 	}
+	// One additional small HTTPS probe for the *default* egress region.
+	// Cloudflare's edge-local loc field is only a network-origin reference,
+	// not proof that any particular platform considers the account unlocked.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		gate <- struct{}{}
+		defer func() { <-gate }()
+		status, body := inspectFetch(inspectionClient(), "https://cloudflare.com/cdn-cgi/trace")
+		if status == http.StatusOK {
+			region := parseTraceRegion(body)
+			mu.Lock()
+			egressRegion = region
+			mu.Unlock()
+		}
+	}()
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
@@ -76,8 +93,25 @@ func inspectNode() inspectionSnapshot {
 		mu.Unlock()
 	}()
 	wg.Wait()
-	snap.Unlock = results
+	snap.Unlock = assignInspectionRegions(results, egressRegion)
 	return snap
+}
+
+// RegionSource identifies the provenance of each label. Never present the
+// common egress location as the platform's own market/entitlement decision.
+func assignInspectionRegions(results []common.UnlockResult, egressRegion string) []common.UnlockResult {
+	if len(egressRegion) != 2 {
+		egressRegion = ""
+	}
+	for i := range results {
+		if results[i].Region != "" {
+			results[i].RegionSource = "site"
+		} else if egressRegion != "" {
+			results[i].Region = egressRegion
+			results[i].RegionSource = "egress"
+		}
+	}
+	return results
 }
 
 // Egress addresses are strictly transient: sent to the authenticated Server
@@ -200,7 +234,7 @@ func parseTraceRegion(body string) string {
 	for _, line := range strings.Split(body, "\n") {
 		if strings.HasPrefix(line, "loc=") {
 			code := strings.ToUpper(strings.TrimSpace(strings.TrimPrefix(line, "loc=")))
-			if len(code) == 2 && code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z' {
+			if len(code) == 2 && code[0] >= 'A' && code[0] <= 'Z' && code[1] >= 'A' && code[1] <= 'Z' && code != "XX" && code != "ZZ" && code != "EU" && code != "AP" {
 				return code
 			}
 		}

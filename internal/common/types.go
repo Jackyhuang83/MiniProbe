@@ -80,8 +80,9 @@ type TrafficSnapshot struct {
 type UnlockResult struct {
 	Service   string    `json:"service"`
 	Status    string    `json:"status"`
-	Region    string    `json:"region,omitempty"`
-	CheckedAt time.Time `json:"checked_at"`
+	Region       string    `json:"region,omitempty"`
+	RegionSource string    `json:"region_source,omitempty"` // site or egress reference
+	CheckedAt    time.Time `json:"checked_at"`
 }
 
 type ASNInfo struct {

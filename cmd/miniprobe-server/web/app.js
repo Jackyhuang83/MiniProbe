@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.21-alpha';
+const UI_VERSION='0.4.22-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -205,13 +205,16 @@ function unlockRow(n){
   const chips=items.filter(x=>Object.prototype.hasOwnProperty.call(unlockLabels,x.service)).map(x=>{
     const state=Object.prototype.hasOwnProperty.call(unlockStates,x.status)?x.status:'unknown';
     const region=unlockRegionCode(x.region);
+    const fromEgress=region&&x.region_source==='egress';
     const checked=x.checked_at?new Date(x.checked_at).toLocaleString():'';
     const label=unlockLabels[x.service];
     const detail=unlockStates[state];
-    const title=`${label} · ${detail}${region?' · '+region:''}${checked?' · '+checked:''}`;
-    return `<span class="unlock-chip ${state}" title="${esc(title)}" aria-label="${esc(title)}">${unlockStateIcon(state)}<span class="unlock-name">${esc(label)}</span>${region?`<span class="unlock-region">${esc(region)}</span>`:''}</span>`;
+    const regionNote=region?(fromEgress?` · 出口地区参考 ≈${region}，非平台解锁地区`:` · 平台请求地区 ${region}（非实际播放验证）`):' · 未取得地区信息';
+    const title=`${label} · ${detail}${regionNote}${checked?' · '+checked:''}`;
+    return `<span class="unlock-chip ${state}" title="${esc(title)}" aria-label="${esc(title)}">${unlockStateIcon(state)}<span class="unlock-name">${esc(label)}</span>${region?`<span class="unlock-region${fromEgress?' egress':''}">${fromEgress?'≈':''}${esc(region)}</span>`:''}</span>`;
   }).join('');
-  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${chips?items.length:0} 项</div><div class="unlock-chips">${chips}</div></div>`;
+  const estimated=items.some(x=>x.region_source==='egress'&&unlockRegionCode(x.region));
+  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${chips?items.length:0} 项${estimated?'<span class="unlock-region-hint" title="≈ 是 VPS 默认出口地区参考，不是该平台的解锁国家"> · ≈出口参考</span>':''}</div><div class="unlock-chips">${chips}</div></div>`;
 }
 
 function card(n){
