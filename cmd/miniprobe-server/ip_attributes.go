@@ -27,17 +27,17 @@ type ipAttrJob struct {
 
 // This is provider data, not proof of a residential or "native" IP.
 type ipQueryResponse struct {
-	IP       string \`json:"ip"\`
+	IP       string `json:"ip"`
 	Location struct {
-		CountryCode string \`json:"country_code"\`
-	} \`json:"location"\`
+		CountryCode string `json:"country_code"`
+	} `json:"location"`
 	Risk struct {
-		IsDatacenter *bool \`json:"is_datacenter"\`
-		IsMobile     *bool \`json:"is_mobile"\`
-		IsVPN        *bool \`json:"is_vpn"\`
-		IsProxy      *bool \`json:"is_proxy"\`
-		IsTor        *bool \`json:"is_tor"\`
-	} \`json:"risk"\`
+		IsDatacenter *bool `json:"is_datacenter"`
+		IsMobile     *bool `json:"is_mobile"`
+		IsVPN        *bool `json:"is_vpn"`
+		IsProxy      *bool `json:"is_proxy"`
+		IsTor        *bool `json:"is_tor"`
+	} `json:"risk"`
 }
 
 func utcSameDay(a, b time.Time) bool {
