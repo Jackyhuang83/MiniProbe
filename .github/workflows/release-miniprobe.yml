@@ -1,10 +1,22 @@
 name: Release MiniProbe Current Version
 
 on:
+  # Publish automatically only when the version changes (Makefile) or when
+  # this release workflow is updated. Unrelated commits do not publish.
+  push:
+    branches: [main]
+    paths:
+      - Makefile
+      - .github/workflows/release-miniprobe.yml
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# Two concurrent runs must not race to publish the same immutable tag.
+concurrency:
+  group: miniprobe-release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   release:
@@ -48,15 +60,38 @@ jobs:
           echo "Tag: $TAG"
           echo "Changelog: $CHANGELOG"
 
+      - name: Check release has not been published
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; nothing to publish."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            # An orphan/pre-existing tag is not ours to overwrite or repoint.
+            if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::Tag $TAG already exists without a published Release. Manual review required."
+              exit 1
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Test
+        if: steps.existing.outputs.publish == 'true'
         run: |
           go test ./...
           go vet ./...
 
       - name: Build release binaries
+        if: steps.existing.outputs.publish == 'true'
         run: make release
 
       - name: Create GitHub Release
+        if: steps.existing.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -65,11 +100,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists."
-            exit 1
-          fi
 
           EXTRA_ARGS=()
 
@@ -86,7 +116,7 @@ jobs:
             dist/miniprobe-agent-linux-arm64 \
             dist/miniprobe-agent-linux-armv7 \
             dist/SHA256SUMS \
-            --target main \
+            --target "$GITHUB_SHA" \
             --title "MiniProbe $TAG" \
             --notes-file "$CHANGELOG" \
             "${EXTRA_ARGS[@]}"
