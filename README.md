@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.23-alpha`（待测试、待发布）；最近已发布版本：`v0.4.22-alpha`
+当前开发版本：`v0.4.24-alpha`（待测试、待发布）；最近已发布版本：`v0.4.23-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -771,3 +771,11 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 数据源：`https://api.ipquery.io/{IP}`，无需 API Key，查询时会向第三方披露被查询节点的出口公网 IP。仅持久化 `IDC / 移动 / 非 IDC / 未知`、地区码、已知 VPN/代理/Tor 标记和最后查询时间；**不保存第三方查询的原始 IP**，不展示节点原始 IP。
 - **非 IDC 不等于已证实家宽**：界面显示「非 IDC · 家宽待核实」。该数据源不提供可信的原生/非原生依据，因此原生属性始终显示「未知」，绝不因 ASN、地区或未命中代理标记就猜测“原生”。第三方结果只是参考，不保证流媒体解锁。
 - 本版本为 **Server-only** 更新；Agent 目标版本继续为 `v0.4.22-alpha`，无需为此功能升级全部 Agent。
+
+## v0.4.24-alpha：修复 Server 更新菜单 Release 元数据过大
+
+- 修复 SSH 菜单 **13. Server 检查更新 / 升级** 出现「检查更新失败: 更新元数据超过大小限制」的错误。根因是原先从 GitHub API 一次拉取 20 条 Release，真实响应约 263 KiB，超过此前 128 KiB 的硬上限。
+- 现在仅请求最近 **5 条** Release（发布数量足够覆盖正常升级场景），元数据上限调整为 **1 MiB**，并且维持封顶读取、合法版本过滤及草稿过滤；实际样本约 66 KiB。
+- 新增 CI 回归测试：解析超过 128 KiB 的有效元数据、排除 draft、拒绝超过 1 MiB 的输入。
+- 此版本仅更新 Server，目标 Agent 继续保持 `v0.4.22-alpha`；不会改变节点数据、Cloudflare Tunnel 或 IP 属性模块的默认关闭设置。
+- 当前运行 v0.4.22-alpha / v0.4.23-alpha 的 Server 因菜单 13 的检测错误无法自行更新至本补丁，首次需运行官方 `scripts/install-server.sh` 一次，升级至 v0.4.24-alpha 后菜单 13 恢复正常。
