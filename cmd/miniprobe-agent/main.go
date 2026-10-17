@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.18-alpha"
+	agentVersion         = "0.4.20-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
