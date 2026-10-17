@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.19-alpha';
+const UI_VERSION='0.4.20-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -185,13 +185,26 @@ function asnRow(n){
 function unlockRow(n){
   const items=Array.isArray(n.unlock)?n.unlock:[];
   if(!items.length) return '<div class="unlock-panel"><span class="panel-label">平台检测</span><span class="asn-missing">等待 Agent 检测</span></div>';
-  const chips=items.filter(x=>unlockLabels[x.service]).map(x=>{
-    const state=Object.prototype.hasOwnProperty.call(unlockStates,x.status)?x.status:'unknown';
-    const region=String(x.region||'').match(/^[A-Z]{2,3}$/)?' '+x.region:'';
-    const checked=x.checked_at?new Date(x.checked_at).toLocaleString():'';
-    return `<span class="unlock-chip ${state}" title="${esc(unlockStates[state])} · ${esc(checked)}">${esc(unlockLabels[x.service])}${esc(region)}<span class="unlock-indicator">${esc(unlockStates[state])}</span></span>`;
+  // A tick indicates reachability, not a verified full unlock or media playback.
+  const statusView={
+    reachable:{mark:'✓',tip:'可访问（未验证完整解锁）'},
+    blocked:{mark:'✕',tip:'明确的地区限制'},
+    limited:{mark:'−',tip:'部分受限'},
+    unknown:{mark:'?',tip:'结果未确定'}
+  };
+  const chips=items.filter(x=>Object.prototype.hasOwnProperty.call(unlockLabels,x.service)).map(x=>{
+    const state=Object.prototype.hasOwnProperty.call(statusView,x.status)?x.status:'unknown';
+    const view=statusView[state];
+    // Use only the platform-provided region, not the VPS or ASN country.
+    const region=String(x.region||'').trim().toUpperCase();
+    const shortRegion=/^[A-Z]{2,3}$/.test(region)?region:'';
+    const checked=x.checked_at?new Date(x.checked_at):null;
+    const stamp=checked&&Number.isFinite(checked.getTime())?checked.toLocaleString('zh-CN',{hour12:false}):'未记录';
+    return `<span class="unlock-chip ${state}" title="${esc(view.tip)} · 检测于 ${esc(stamp)}" aria-label="${esc(unlockLabels[x.service])} ${esc(shortRegion)}：${esc(view.tip)}"><span class="unlock-symbol" aria-hidden="true">${view.mark}</span><span class="unlock-service">${esc(unlockLabels[x.service])}</span>${shortRegion?`<span class="unlock-region">${esc(shortRegion)}</span>`:''}</span>`;
   }).join('');
-  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${items.length} 项</div><div class="unlock-chips">${chips}</div></div>`;
+  const dates=items.map(x=>Date.parse(x.checked_at||'')).filter(Number.isFinite);
+  const last=dates.length?new Date(Math.max(...dates)).toLocaleString('zh-CN',{hour12:false}):'';
+  return `<div class="unlock-panel"><div class="panel-label">平台检测 · ${items.length} 项</div><div class="unlock-chips">${chips}</div>${last?`<div class="unlock-footer">检测于 ${esc(last)} · ✓ 表示可访问，非完整解锁</div>`:''}</div>`;
 }
 
 function card(n){
