@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -43,7 +44,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.18-alpha"
+	serverVersion        = "0.4.19-alpha"
 	agentTargetVersion   = "0.4.18-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -822,6 +823,33 @@ func (s *server) dashboardOnly(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// Historical versioned UI routes are permanent entrypoints: stale bookmarks,
+// open tabs, and long-lived cached HTML/JS must remain functional on upgrades.
+var legacyDashboardVersion = regexp.MustCompile(`^v?[0-9]+(?:\.[0-9]+){1,3}(?:-(?:alpha|beta|rc)(?:[.-][a-zA-Z0-9]+)?)?$`)
+var legacyDashboardAsset = regexp.MustCompile(`^[a-zA-Z0-9_-]+\.(?:js|css|svg|png|webp|ico)$`)
+
+func legacyDashboardTarget(path string) (string, bool) {
+	if !strings.HasPrefix(path, "/ui/") {
+		return "", false
+	}
+	remaining := strings.TrimPrefix(path, "/ui/")
+	version, relative, hasSlash := strings.Cut(remaining, "/")
+	if version == serverVersion || !legacyDashboardVersion.MatchString(version) {
+		return "", false
+	}
+	target := "/ui/" + serverVersion
+	if !hasSlash || relative == "" || relative == "index.html" {
+		return target + "/", true
+	}
+	if relative == "network.html" {
+		return target + "/network.html", true
+	}
+	if legacyDashboardAsset.MatchString(relative) {
+		return target + "/" + relative, true
+	}
+	return "", false
+}
+
 func (s *server) dashboardAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if s.dashboardMode() == dashboardDisabled {
@@ -832,6 +860,21 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 		path := r.URL.Path
 		uiPrefix := "/ui/" + serverVersion
 		versioned := path == uiPrefix || strings.HasPrefix(path, uiPrefix+"/")
+
+		// Redirect obsolete versioned HTML and bundled assets to the current
+		// version. Keep the node ID and prevent Cloudflare caching this redirect.
+		if !versioned && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			if target, ok := legacyDashboardTarget(path); ok {
+				query := r.URL.Query()
+				query.Del("v")
+				if encoded := query.Encode(); encoded != "" {
+					target += "?" + encoded
+				}
+				noStore(w)
+				http.Redirect(w, r, target, http.StatusTemporaryRedirect)
+				return
+			}
+		}
 
 		// Use the URL path, not only a query string, as the release cache key.
 		// Some Cloudflare cache rules intentionally ignore query strings; a new

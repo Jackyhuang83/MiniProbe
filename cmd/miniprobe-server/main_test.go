@@ -228,6 +228,78 @@ func TestVersionedDashboardRootDoesNotRedirectLoop(t *testing.T) {
 	}
 }
 
+
+func TestLegacyDashboardLinksSurviveVersionUpgrade(t *testing.T) {
+	s := &server{db: database{Settings: settings{DashboardMode: dashboardPublic}}}
+	sub, err := fs.Sub(assets, "web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.dashboardAssets(http.FileServer(http.FS(sub)))
+	cases := []struct {
+		old string
+		want string
+	}{
+		{"/ui/0.4.16/", "/ui/" + serverVersion + "/"},
+		{"/ui/0.4.17-alpha", "/ui/" + serverVersion + "/"},
+		{"/ui/0.4.18-alpha/index.html", "/ui/" + serverVersion + "/"},
+		{"/ui/0.4.18-alpha/network.html?id=node-1", "/ui/" + serverVersion + "/network.html?id=node-1"},
+		{"/ui/0.4.18-alpha/network.html?id=node-1&v=old", "/ui/" + serverVersion + "/network.html?id=node-1"},
+		{"/ui/0.4.17-alpha/app.js", "/ui/" + serverVersion + "/app.js"},
+		{"/ui/0.4.17-alpha/network.js", "/ui/" + serverVersion + "/network.js"},
+		{"/ui/0.4.16/style.css", "/ui/" + serverVersion + "/style.css"},
+		{"/ui/0.4.16/debian.svg", "/ui/" + serverVersion + "/debian.svg"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.old, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.old, nil)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusTemporaryRedirect {
+				t.Fatalf("old link %q got HTTP %d, want 307", tc.old, w.Code)
+			}
+			if location := w.Header().Get("Location"); location != tc.want {
+				t.Fatalf("old link %q redirects to %q, want %q", tc.old, location, tc.want)
+			}
+			if got := w.Header().Get("Cache-Control"); got != "no-store" {
+				t.Fatalf("old link redirect Cache-Control=%q; want no-store", got)
+			}
+			// Following the redirect must reach an actual bundled resource.
+			follow := httptest.NewRequest(http.MethodGet, tc.want, nil)
+			next := httptest.NewRecorder()
+			h.ServeHTTP(next, follow)
+			if next.Code != http.StatusOK {
+				t.Fatalf("redirected link %q got HTTP %d, want 200", tc.want, next.Code)
+			}
+		})
+	}
+}
+
+func TestLegacyDashboardRejectsUnrecognizedPaths(t *testing.T) {
+	for _, p := range []string{
+		"/ui/not-a-version/", "/ui/0.4.18-alpha/private",
+		"/ui/0.4.18-alpha/foo/bar.js",
+		"/ui/0.4.18-alpha/network.html/extra",
+		"/api/v1/nodes",
+	} {
+		if target, ok := legacyDashboardTarget(p); ok {
+			t.Fatalf("unexpected old UI redirect for %q: %q", p, target)
+		}
+	}
+	if target, ok := legacyDashboardTarget("/ui/" + serverVersion + "/"); ok {
+		t.Fatalf("current UI must not redirect to itself: %q", target)
+	}
+	s := &server{db: database{Settings: settings{DashboardMode: dashboardDisabled}}}
+	h := s.dashboardAssets(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ui/0.4.17-alpha/", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("disabled Dashboard leaked old UI redirect: %d", w.Code)
+	}
+}
+
 func TestEmbeddedDashboardUsesServerVersion(t *testing.T) {
 	for _, name := range []string{"web/index.html", "web/network.html", "web/app.js", "web/network.js"} {
 		b, err := assets.ReadFile(name)
