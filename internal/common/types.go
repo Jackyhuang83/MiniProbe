@@ -85,6 +85,25 @@ type UnlockResult struct {
 	CheckedAt    time.Time `json:"checked_at"`
 }
 
+// IPAttributeResult is a provider signal, not verified native-IP status.
+// It deliberately contains no raw source IP, prefix, or other identifier.
+type IPAttributeResult struct {
+	Class      string    `json:"class"` // idc, mobile, non_idc, unknown
+	Native     string    `json:"native"` // currently unknown: provider cannot attest native-ness
+	Country    string    `json:"country,omitempty"`
+	VPN        bool      `json:"vpn,omitempty"`
+	Proxy      bool      `json:"proxy,omitempty"`
+	Tor        bool      `json:"tor,omitempty"`
+	Source     string    `json:"source,omitempty"`
+	State      string    `json:"state"` // ok or unknown
+	CheckedAt  time.Time `json:"checked_at,omitempty"` // attempted UTC day
+}
+
+type IPAttributes struct {
+	IPv4 IPAttributeResult `json:"ipv4"`
+	IPv6 IPAttributeResult `json:"ipv6"`
+}
+
 type ASNInfo struct {
 	Number string `json:"number,omitempty"`
 	Org    string `json:"org,omitempty"`
@@ -181,6 +200,8 @@ type ReportResponse struct {
 
 type NodeView struct {
 	Identity NetworkIdentity `json:"identity"`
+	IPAttributesEnabled bool `json:"ip_attributes_enabled,omitempty"`
+	IPAttributes IPAttributes `json:"ip_attributes,omitempty"`
 	Report
 	DisplayName         string    `json:"display_name"`
 	Online              bool      `json:"online"`
