@@ -44,7 +44,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.20-alpha"
+	serverVersion        = "0.4.21-alpha"
 	agentTargetVersion   = "0.4.20-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -1072,6 +1072,14 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/route-baseline", s.localRouteBaseline)
 	mux.HandleFunc("/v1/telegram-test", s.localTelegramTest)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
+	mux.HandleFunc("/v1/server-version", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		noStore(w)
+		writeJSON(w, http.StatusOK, map[string]string{"server_version": serverVersion, "agent_target_version": agentTargetVersion})
+	})
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 30 * time.Second}
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -2286,6 +2294,7 @@ func runManager(socketPath string) error {
 		fmt.Println("10. 存储 / 当前设置")
 		fmt.Println("11. 国内线路测试（北京 / 上海 / 广州）")
 		fmt.Println("12. Agent 版本管理 / 集中升级")
+		fmt.Println("13. Server 检查更新 / 升级")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")
@@ -2314,6 +2323,10 @@ func runManager(socketPath string) error {
 			manageProbeSettings(reader, client)
 		case "12":
 			manageAgentUpgrades(reader, client)
+		case "13":
+			if manageServerUpdate(reader, socketPath) {
+				return nil // The old CLI process must not remain open after replacing the executable.
+			}
 		case "0", "q", "Q":
 			return nil
 		default:
@@ -3394,7 +3407,10 @@ func setServerListen(addr string) error {
 }
 
 func restartMiniProbeServer() error {
-	if _, err := exec.LookPath("systemctl"); err == nil {
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		if _, err := exec.LookPath("systemctl"); err != nil {
+			return fmt.Errorf("systemd 正在使用，但找不到 systemctl: %w", err)
+		}
 		cmd := exec.Command("systemctl", "restart", "miniprobe-server")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("systemctl restart: %v: %s", err, strings.TrimSpace(string(out)))
