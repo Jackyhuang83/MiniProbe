@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.22-alpha';
+const UI_VERSION='0.4.23-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -199,6 +199,31 @@ function asnRow(n){
     `<span class="asn-entry"><span class="asn-family">${family}</span><b>${esc(v.number)}</b><span class="asn-company" title="${esc(v.org||'公司未知')}">${esc(v.org||'公司待识别')}</span></span>`);
   return `<div class="asn-row"><span class="panel-label">出口 ASN</span>${parts.join('')||'<span class="asn-missing">等待采集</span>'}</div>`;
 }
+// The dashboard stays read-only: activation is allowed only over the
+// root-owned Unix socket through SSH menu 14.
+const openIPAttributeCards=new Set();
+function ipAttributeLine(label,data){
+  const value=data||{};
+  const checked=value.checked_at?new Date(value.checked_at).toLocaleString():'';
+  const kind={idc:'IDC · 数据中心',mobile:'移动网络',non_idc:'非 IDC · 家宽待核实',unknown:'未知'}[value.class]||'未知';
+  const native='未知（服务商数据无法确认原生）';
+  const signals=[value.vpn?'VPN':'',value.proxy?'代理':'',value.tor?'Tor':''].filter(Boolean).join(' / ')||'未报告已知代理风险';
+  return `<div class="ip-attr-row"><b>${esc(label)}</b><div><span class="ip-attr-type">${esc(kind)}</span><span class="ip-attr-country">${esc(value.country||'')}</span><span class="ip-attr-detail">原生：${native} · ${value.state==='ok'?esc(signals):'暂无有效结果'}</span>${checked?`<span class="ip-attr-date">查询：${esc(checked)}（UTC 日限额）</span>`:'<span class="ip-attr-date">等待下一次出口 IP 采集</span>'}</div></div>`;
+}
+function ipAttributePanel(n){
+  const enabled=n.ip_attributes_enabled===true;
+  const attributes=n.ip_attributes||{};
+  const expanded=openIPAttributeCards.has(String(n.node_id));
+  return `<details class="ip-attr-panel" data-ip-node="${esc(n.node_id||'')}"${expanded?' open':''}>
+    <summary>IP 属性 · ${enabled?'参考检测':'未启用'}<span class="ip-attr-chevron" aria-hidden="true">⌄</span></summary>
+    <div class="ip-attr-inner">
+      ${enabled?`${ipAttributeLine('IPv4',attributes.ipv4)}${ipAttributeLine('IPv6',attributes.ipv6)}
+      <div class="ip-attr-note">第三方 ipquery.io 数据，仅供参考；非 IDC 不等于家宽，原生无法可靠认证。查询每天每节点每地址族最多 1 次。</div>`:
+      '<div class="ip-attr-note">默认关闭。需要 SSH 登录主 Server，在 miniprobe 菜单 14 主动启用；网页仅展示。</div>'}
+    </div>
+  </details>`;
+}
+
 function unlockRow(n){
   const items=Array.isArray(n.unlock)?n.unlock:[];
   if(!items.length) return '<div class="unlock-panel"><span class="panel-label">平台检测</span><span class="asn-missing">等待 Agent 检测</span></div>';
@@ -252,6 +277,7 @@ function card(n){
     </div>
 
     ${asnRow(n)}
+    ${ipAttributePanel(n)}
     ${unlockRow(n)}
     <div class="route-strip"><span class="route-state ${route.cls}">${route.text}</span><a class="route-link" href="${UI_BASE}/network.html?id=${encodeURIComponent(n.node_id)}">查看线路详情 ›</a></div>
     ${tagHtml?`<div class="footer">${tagHtml}</div>`:''}
@@ -269,6 +295,15 @@ async function refresh(){
     $('#summary').textContent='连接 Server 失败';
   }
 }
+
+$('#grid').addEventListener('toggle',event=>{
+  const el=event.target;
+  if(!el.matches || !el.matches('.ip-attr-panel')) return;
+  const key=el.getAttribute('data-ip-node');
+  if(!key)return;
+  if(el.open)openIPAttributeCards.add(key);
+  else openIPAttributeCards.delete(key);
+},true);
 
 async function boot(){
   try{

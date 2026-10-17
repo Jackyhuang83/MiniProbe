@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.22-alpha`（待测试、待发布）；最近已发布版本：`v0.4.21-alpha`
+当前开发版本：`v0.4.23-alpha`（待测试、待发布）；最近已发布版本：`v0.4.22-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -763,3 +763,11 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 出口地区服务无法访问或返回无效 `loc` 时仍不填写地区；不会推断 Netflix 可播放地区、MyTV SUPER DRM / 付费解锁情况。
 - 兼容旧 Agent 未发送 `region_source` 的报告；Server 保持 Dashboard 只读、ASN、月流量累计不变。更新数据来源需升级 Agent 到 `v0.4.22-alpha`。
 - 本版本在已发布的 v0.4.21-alpha Server 菜单更新基础上开发，按版本顺序发布。
+
+## v0.4.23-alpha：可选 IP 属性（默认关闭）
+
+- SSH 登录主 Server 后运行 `miniprobe` → **14. IP 属性检测（默认关闭）**。只有在 SSH 菜单明确输入 `YES` 同意传送节点出口 IP 给第三方 `ipquery.io` 才会启动。Dashboard **严格只读**，面板中显示为默认**折叠**的 IP 属性详情。
+- 每节点 **IPv4 与 IPv6 分别最多每天一次（UTC 自然日）**，失败也消耗当天一次额度；首次开启需要等待 Agent 下次出口 IP 上报（正常每 12 小时一次），不要求更新 Agent。由 Server 顺序请求，每次最多 8 秒且限制响应长度；关闭后不再调度新的查询。
+- 数据源：`https://api.ipquery.io/{IP}`，无需 API Key，查询时会向第三方披露被查询节点的出口公网 IP。仅持久化 `IDC / 移动 / 非 IDC / 未知`、地区码、已知 VPN/代理/Tor 标记和最后查询时间；**不保存第三方查询的原始 IP**，不展示节点原始 IP。
+- **非 IDC 不等于已证实家宽**：界面显示「非 IDC · 家宽待核实」。该数据源不提供可信的原生/非原生依据，因此原生属性始终显示「未知」，绝不因 ASN、地区或未命中代理标记就猜测“原生”。第三方结果只是参考，不保证流媒体解锁。
+- 本版本为 **Server-only** 更新；Agent 目标版本继续为 `v0.4.22-alpha`，无需为此功能升级全部 Agent。

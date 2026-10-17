@@ -44,7 +44,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.22-alpha"
+	serverVersion        = "0.4.23-alpha"
 	agentTargetVersion   = "0.4.22-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -139,6 +139,7 @@ type telegramConfig struct {
 }
 
 type settings struct {
+	IPAttributesEnabled bool `json:"ip_attributes_enabled,omitempty"`
 	PublicURL         string         `json:"public_url"`
 	AccessMode        string         `json:"access_mode"`
 	PolicyVersion     int64          `json:"policy_version"`
@@ -241,6 +242,10 @@ type server struct {
 	asnMu    sync.Mutex
 	asnCache map[string]asnCacheEntry
 
+	ipAttrMu sync.Mutex
+	ipAttrPending map[string]bool
+	ipAttrQueue chan ipAttrJob
+
 	identityMu      sync.Mutex
 	identityPending map[string]bool
 	identityChecked map[string]time.Time
@@ -301,7 +306,7 @@ func main() {
 		dataFile: dataFile, downloadsDir: *downloads, adminSocket: *adminSocket,
 		failures: map[string]loginFailures{}, notifyCh: make(chan string, 128),
 		historyDir: filepath.Join(*dataDir, "network-history"), historyAcc: map[string]*historyMinuteAccumulator{}, historyLastProbe: map[string]time.Time{},
-		routeStates: map[string]routeNodeState{}, routeSeen: map[string]time.Time{}, routeCh: make(chan routeJob, 64), asnCache: map[string]asnCacheEntry{},
+		routeStates: map[string]routeNodeState{}, routeSeen: map[string]time.Time{}, routeCh: make(chan routeJob, 64), asnCache: map[string]asnCacheEntry{}, ipAttrPending: map[string]bool{}, ipAttrQueue: make(chan ipAttrJob, 32),
 	}
 	created, generatedDashboardPass, err := s.loadOrInit(*publicURL, *initDashboardMode, *initDashboardPassword)
 	if err != nil {
@@ -328,6 +333,7 @@ func main() {
 	go s.trafficSummaryLoop()
 	go s.networkHistoryLoop()
 	go s.routeWorker()
+	go s.ipAttributeWorker()
 
 	if err := s.startAdminSocket(); err != nil {
 		log.Fatal(err)
@@ -530,7 +536,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	// Raw outbound IPs are never written to the database or Dashboard API.
 	storedReport.EgressIPv4, storedReport.EgressIPv6 = "", ""
 	nv := common.NodeView{
-		Report: storedReport, Identity: previous.Identity, DisplayName: cfg.DisplayName, Online: true, ObservedIP: remoteIP(r.RemoteAddr), LastSeen: now,
+		Report: storedReport, Identity: previous.Identity, IPAttributes: previous.IPAttributes, DisplayName: cfg.DisplayName, Online: true, ObservedIP: remoteIP(r.RemoteAddr), LastSeen: now,
 		MonthlyTrafficLimit: cfg.MonthlyTrafficLimit, TrafficDirection: cfg.TrafficDirection,
 		TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZ: formatTZOffset(cfg.TrafficResetTZMinutes),
 		ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
@@ -578,6 +584,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	s.scheduleIdentityLookup(rep.NodeID, egressIPv4, egressIPv6)
+	s.scheduleIPAttributes(rep.NodeID, egressIPv4, egressIPv6)
 	s.ingestProbeSample(rep.NodeID, rep.ProbeAt, rep.ProbeProtocol, rep.Probes)
 	s.enqueueRouteSnapshot(rep.NodeID, rep.RouteAt, rep.Routes)
 	for _, msg := range messages {
@@ -714,6 +721,8 @@ func (s *server) nodesAPI(w http.ResponseWriter, r *http.Request) {
 		// ObservedIP is useful for local SSH administration, but the Dashboard
 		// API must not expose node public IPs (especially in Public mode).
 		v.ObservedIP = ""
+		v.IPAttributesEnabled = s.db.Settings.IPAttributesEnabled
+		if !v.IPAttributesEnabled { v.IPAttributes = common.IPAttributes{} }
 		v.Online = !v.LastSeen.IsZero() && now.Sub(v.LastSeen) < 20*time.Second
 		v.RouteStatus, v.RouteChangedCount, v.RouteLastChecked = s.routeSummary(id)
 		out = append(out, v)
@@ -1102,6 +1111,7 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 			"dashboard_mode":           s.db.Settings.DashboardMode,
 			"has_dashboard_password":   s.db.Settings.DashboardPassword.Hash != "",
 			"probe_mode":               s.db.Settings.ProbeMode,
+			"ip_attributes_enabled":    s.db.Settings.IPAttributesEnabled,
 			"probe_region":             s.db.Settings.ProbeRegion,
 			"probe_region_label":       probeRegionLabel(s.db.Settings.ProbeRegion),
 			"probe_protocol":           s.db.Settings.ProbeProtocol,
@@ -1124,6 +1134,7 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 			DashboardMode          *string `json:"dashboard_mode"`
 			DashboardPassword      *string `json:"dashboard_password"`
 			ProbeMode              *string `json:"probe_mode"`
+			IPAttributesEnabled    *bool   `json:"ip_attributes_enabled"`
 			ProbeRegion            *string `json:"probe_region"`
 			ProbeProtocol          *string `json:"probe_protocol"`
 			TelegramEnabled        *bool   `json:"telegram_enabled"`
@@ -1226,6 +1237,10 @@ func (s *server) localConfig(w http.ResponseWriter, r *http.Request) {
 				s.db.Settings.ProbeProtocol = protocol
 				policyChanged = true
 			}
+		}
+
+		if in.IPAttributesEnabled != nil {
+			s.db.Settings.IPAttributesEnabled = *in.IPAttributesEnabled
 		}
 
 		if in.TelegramBotToken != nil {
@@ -2295,6 +2310,7 @@ func runManager(socketPath string) error {
 		fmt.Println("11. 国内线路测试（北京 / 上海 / 广州）")
 		fmt.Println("12. Agent 版本管理 / 集中升级")
 		fmt.Println("13. Server 检查更新 / 升级")
+		fmt.Println("14. IP 属性检测（默认关闭）")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")
@@ -2327,6 +2343,8 @@ func runManager(socketPath string) error {
 			if manageServerUpdate(reader, socketPath) {
 				return nil // The old CLI process must not remain open after replacing the executable.
 			}
+		case "14":
+			manageIPAttributeSettings(reader, client)
 		case "0", "q", "Q":
 			return nil
 		default:
@@ -2336,6 +2354,7 @@ func runManager(socketPath string) error {
 }
 
 type localConfigView struct {
+	IPAttributesEnabled bool `json:"ip_attributes_enabled"`
 	PublicURL              string `json:"public_url"`
 	AccessMode             string `json:"access_mode"`
 	PolicyVersion          int64  `json:"policy_version"`
@@ -3237,6 +3256,7 @@ func manageShowConfig(c *localClient) {
 		probeState = cfg.ProbeRegionLabel + " · " + cfg.ProbeProtocolLabel
 	}
 	fmt.Printf("国内线路测试     : %s\n", probeState)
+	fmt.Printf("IP 属性检测      : %s（每日每节点每地址族最多一次）\n", map[bool]string{true:"开启", false:"关闭"}[cfg.IPAttributesEnabled])
 	fmt.Printf("节点数量         : %d / %d\n", len(nodes), cfg.NodeSoftLimit)
 	fmt.Printf("Telegram         : %s\n", map[bool]string{true: "Enabled", false: "Disabled"}[cfg.TelegramEnabled])
 	fmt.Printf("流量摘要         : %s\n", summaryLabel(cfg.TelegramSummaryHours))
