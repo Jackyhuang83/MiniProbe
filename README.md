@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发版本：`v0.4.21-alpha`（待测试、待发布）；最近已发布版本：`v0.4.20-alpha`
+当前开发版本：`v0.4.22-alpha`（待测试、待发布）；最近已发布版本：`v0.4.21-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -755,3 +755,11 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 同步加强 `scripts/install-server.sh`：所有二进制在替换之前必须通过 SHA256 校验，且安装后需从本机管理 Socket 确认运行版本；验证失败时尝试恢复旧程序并报错。
 - **这是 Server 更新功能**，Agent 目标版本继续保持 `0.4.20-alpha`，无需让全部节点为了菜单更新而重装。
 - 由于旧版没有菜单 13，**首次升级至 v0.4.21-alpha 仍须执行一次官方安装脚本**；之后的新版本可在菜单 13 内进行 Server 更新。
+
+## v0.4.22-alpha：更多地区简写（区分来源）
+
+- 现有平台检测仅少数站点返回国家码；新增每 12 小时至多一次轻量 `https://www.cloudflare.com/cdn-cgi/trace` 检测 VPS 默认出口地区的 `loc`，与原 10 项平台检测共享 3 并发限额，不引入 GeoIP/IP 属性库。
+- 平台或站点请求有直接地区数据时继续显示例如 `JP`、`HK`，并标记 `region_source=site`；仅无数据时显示 **`≈JP`**，标记 `region_source=egress`。`≈` 只是默认出口地区参考，不等于平台实际解锁地区；浮层说明来源。
+- 出口地区服务无法访问或返回无效 `loc` 时仍不填写地区；不会推断 Netflix 可播放地区、MyTV SUPER DRM / 付费解锁情况。
+- 兼容旧 Agent 未发送 `region_source` 的报告；Server 保持 Dashboard 只读、ASN、月流量累计不变。更新数据来源需升级 Agent 到 `v0.4.22-alpha`。
+- 本版本在已发布的 v0.4.21-alpha Server 菜单更新基础上开发，按版本顺序发布。

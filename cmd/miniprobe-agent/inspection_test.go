@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/Jackyhuang83/MiniProbe/internal/common"
 )
 
 func TestInspectionParsersAreConservative(t *testing.T) {
@@ -32,6 +34,40 @@ func TestMyTVSuperRegionProbeDoesNotConfuseHomepageWithUnlock(t *testing.T) {
 		status, region := myTVSuperRegionStatus(tc.body)
 		if status != tc.status || region != tc.region {
 			t.Errorf("body %q status/region=%q/%q; want %q/%q", tc.body, status, region, tc.status, tc.region)
+		}
+	}
+}
+
+func TestInspectionRegionSources(t *testing.T) {
+	input := []common.UnlockResult{
+		{Service: "gemini", Status: "reachable", Region: "JPN"},
+		{Service: "youtube", Status: "reachable", Region: "US"},
+		{Service: "netflix", Status: "limited"},
+		{Service: "disney", Status: "unknown"},
+		{Service: "mytvsuper", Status: "blocked"},
+	}
+	actual := assignInspectionRegions(input, "JP")
+	want := []struct{ region, source string }{
+		{"JPN", "site"}, {"US", "site"}, {"JP", "egress"}, {"JP", "egress"}, {"JP", "egress"},
+	}
+	for i, expected := range want {
+		if actual[i].Region != expected.region || actual[i].RegionSource != expected.source {
+			t.Errorf("%s region/source = %q/%q; want %q/%q", actual[i].Service, actual[i].Region, actual[i].RegionSource, expected.region, expected.source)
+		}
+	}
+	noReference := assignInspectionRegions([]common.UnlockResult{{Service: "google"}}, "")
+	if noReference[0].Region != "" || noReference[0].RegionSource != "" {
+		t.Fatal("must not invent countries when egress region is unknown")
+	}
+	if got := parseTraceRegion("ip=redacted\nloc=XX\n"); got != "" {
+		t.Fatalf("unknown country code accepted: %s", got)
+	}
+	if got := parseTraceRegion("loc=JP\n"); got != "JP" {
+		t.Fatalf("valid country code lost: %s", got)
+	}
+	for _, unknown := range []string{"XX", "ZZ", "EU", "AP", "??"} {
+		if got := parseTraceRegion("loc="+unknown+"\n"); got != "" {
+			t.Errorf("pseudo-country %q accepted as %q", unknown, got)
 		}
 	}
 }
