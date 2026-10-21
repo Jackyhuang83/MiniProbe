@@ -208,3 +208,28 @@ func TestTrafficHistoryDeleteNodeRemovesOnlyItsData(t *testing.T) {
 		t.Fatalf("other nodes' history must remain: %+v; %v", records, err)
 	}
 }
+
+func TestTrafficHistoryNeverBlocksAgentReportDuringBackgroundDiskWork(t *testing.T) {
+	s := newTrafficHistoryTestServer(t)
+	at := time.Date(2026, 10, 20, 10, 10, 0, 0, time.UTC)
+	sample := trafficTestSnapshot(at.Add(-time.Hour), 5, 10, 10)
+
+	// Model a slow background disk operation that holds the history lock.
+	// This must not delay authenticated Agent reports or alert processing.
+	s.trafficHistoryMu.Lock()
+	defer s.trafficHistoryMu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		s.ingestTrafficHistory("node-1", at, sample)
+		close(done)
+	}()
+	select {
+	case <-done:
+		// An optional history point may be discarded under contention.
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("history ingestion blocked an Agent report behind disk I/O")
+	}
+	if len(s.trafficHistoryPending) != 0 {
+		t.Fatal("contended history write must not mutate the pending buffer")
+	}
+}
