@@ -80,7 +80,8 @@ func trafficDashboardDates(query string, now time.Time, offset int) (string, str
 		return "", "", time.Time{}, time.Time{}, errors.New("dates must be YYYY-MM-DD")
 	}
 	count := int(b.Sub(a).Hours()/24) + 1
-	if count < 1 || count > trafficDashboardMaxDays || a.After(localNow) {
+	today := time.Date(localNow.Year(), localNow.Month(), localNow.Day(), 0, 0, 0, 0, zone)
+	if count < 1 || count > trafficDashboardMaxDays || a.After(today) || b.After(today) {
 		return "", "", time.Time{}, time.Time{}, errors.New("date range must be 1..90 days, not in the future")
 	}
 	return from, to, a.UTC(), b.AddDate(0, 0, 1).UTC(), nil
@@ -121,6 +122,7 @@ func aggregateTrafficNode(records []trafficHistoryCheckpoint, start, end time.Ti
 	points := 0
 	incomplete := false
 	lastByCycle := make(map[int64]trafficHistoryCheckpoint)
+	observedDays := make(map[string]bool)
 	for _, cur := range records {
 		at := time.Unix(cur.At, 0).UTC()
 		if at.After(end) || at.Equal(end) {
@@ -136,6 +138,7 @@ func aggregateTrafficNode(records []trafficHistoryCheckpoint, start, end time.Ti
 		if day == nil {
 			continue
 		}
+		observedDays[day.Date] = true
 		if !exists || !trafficSnapshotValidPair(prev, cur) {
 			incomplete = true
 			day.Incomplete = true
@@ -148,6 +151,12 @@ func aggregateTrafficNode(records []trafficHistoryCheckpoint, start, end time.Ti
 		}
 		addTrafficTotals(&day.dashboardTrafficTotals, delta)
 		addTrafficTotals(&total, delta)
+	}
+	for date, day := range days {
+		if !observedDays[date] {
+			day.Incomplete = true
+			incomplete = true
+		}
 	}
 	return total, points, incomplete
 }
