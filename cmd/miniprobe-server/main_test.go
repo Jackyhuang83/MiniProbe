@@ -247,6 +247,7 @@ func TestLegacyDashboardLinksSurviveVersionUpgrade(t *testing.T) {
 		{"/ui/0.4.18-alpha/network.html?id=node-1&v=old", "/ui/" + serverVersion + "/network.html?id=node-1"},
 		{"/ui/0.4.17-alpha/app.js", "/ui/" + serverVersion + "/app.js"},
 		{"/ui/0.4.17-alpha/network.js", "/ui/" + serverVersion + "/network.js"},
+		{"/ui/0.4.24-alpha/traffic.html", "/ui/" + serverVersion + "/traffic.html"},
 		{"/ui/0.4.16/style.css", "/ui/" + serverVersion + "/style.css"},
 		{"/ui/0.4.16/debian.svg", "/ui/" + serverVersion + "/debian.svg"},
 	}
@@ -300,8 +301,27 @@ func TestLegacyDashboardRejectsUnrecognizedPaths(t *testing.T) {
 	}
 }
 
+func TestTrafficDashboardUnversionedURLAndCachePolicy(t *testing.T) {
+	s := &server{db: database{Settings: settings{DashboardMode: dashboardPublic}}}
+	sub, err := fs.Sub(assets, "web")
+	if err != nil { t.Fatal(err) }
+	handler := s.dashboardAssets(http.FileServer(http.FS(sub)))
+	for _, path := range []string{"/traffic.html", "/ui/0.4.24-alpha/traffic.html"} {
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+		if w.Code != http.StatusTemporaryRedirect || w.Header().Get("Location") != "/ui/"+serverVersion+"/traffic.html" {
+			t.Fatalf("traffic redirect %s: %d %q", path, w.Code, w.Header().Get("Location"))
+		}
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ui/"+serverVersion+"/traffic.html", nil))
+	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("traffic HTML response: %d %q", w.Code, w.Header().Get("Cache-Control"))
+	}
+}
+
 func TestEmbeddedDashboardUsesServerVersion(t *testing.T) {
-	for _, name := range []string{"web/index.html", "web/network.html", "web/app.js", "web/network.js"} {
+	for _, name := range []string{"web/index.html", "web/network.html", "web/app.js", "web/network.js", "web/traffic.html", "web/traffic.js"} {
 		b, err := assets.ReadFile(name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
