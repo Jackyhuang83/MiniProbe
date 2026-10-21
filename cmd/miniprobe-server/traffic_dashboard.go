@@ -241,8 +241,8 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		result.Nodes = append(result.Nodes, dashboardTrafficNode{
 			ID: node.id, DisplayName: node.config.DisplayName,
-			Online: !node.lastSeen.IsZero() && now.Sub(node.state.LastSeen) < 20*time.Second,
-			LastSeen: node.state.LastSeen,
+			Online: !node.lastSeen.IsZero() && now.Sub(node.lastSeen) < 20*time.Second,
+			LastSeen: node.lastSeen,
 			History: historyTotals, HistoryPoints: points, Incomplete: incomplete, Days: nodeDaily,
 			QuotaBytes: quota, CycleUsedBytes: used, RemainingBytes: remaining,
 			UsagePercent: percent, Direction: node.config.TrafficDirection,
