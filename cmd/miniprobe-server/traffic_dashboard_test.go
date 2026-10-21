@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -216,5 +217,39 @@ func TestTrafficDashboardIsolatesUnreadableNodeHistory(t *testing.T) {
 	}
 	if strings.Contains(w.Body.String(), s.trafficHistoryDir) {
 		t.Fatal("history filesystem path leaked to Dashboard response")
+	}
+}
+
+func TestTrafficDashboardDoesNotTreatCycleBaselineAsUsage(t *testing.T) {
+	zone := time.UTC
+	start := time.Date(2026, 10, 20, 0, 0, 0, 0, zone)
+	end := start.Add(24 * time.Hour)
+	cycle := start.Add(-10 * time.Hour).Unix()
+	mk := func(at time.Time, used uint64) trafficHistoryCheckpoint {
+		return trafficHistoryCheckpoint{At: at.Unix(), CycleStart: cycle,
+			Direction: "outbound", ResetDay: 1, ResetTZMinutes: 0, LimitBytes: 10000,
+			InboundBytes: used / 2, OutboundBytes: used, UsedBytes: used}
+	}
+	records := []trafficHistoryCheckpoint{
+		mk(start.Add(-10*time.Minute), 5000), // historical baseline from previous day
+		mk(start.Add(15*time.Minute), 5050),
+		mk(start.Add(30*time.Minute), 5090),
+	}
+	days := dashboardTestDays(start, end, zone)
+	got, points, incomplete := aggregateTrafficNode(records, start, end, zone, days)
+	if points != 2 || got.UsedBytes != 90 || got.OutboundBytes != 90 || incomplete {
+		t.Fatalf("baseline mistakenly billed as new daily traffic: %+v, points=%d incomplete=%t", got, points, incomplete)
+	}
+}
+
+func TestTrafficDashboardTotalsSaturateWithoutWrapping(t *testing.T) {
+	total := dashboardTrafficTotals{
+		InboundBytes: math.MaxUint64 - 1,
+		OutboundBytes: math.MaxUint64 - 2,
+		UsedBytes: math.MaxUint64 - 3,
+	}
+	addTrafficTotals(&total, dashboardTrafficTotals{InboundBytes: 100, OutboundBytes: 100, UsedBytes: 100})
+	if total.InboundBytes != math.MaxUint64 || total.OutboundBytes != math.MaxUint64 || total.UsedBytes != math.MaxUint64 {
+		t.Fatalf("traffic totals overflowed: %+v", total)
 	}
 }
