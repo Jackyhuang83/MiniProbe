@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MiniProbe · 流量统计中心</title>
+  <link rel="stylesheet" href="/ui/0.4.25-alpha/style.css">
+</head>
+<body>
+  <section id="trafficLoading" class="login-wrap">
+    <div class="login-card compact-card">
+      <div class="login-brand">MiniProbe</div>
+      <div class="login-sub">正在读取流量统计…</div>
+    </div>
+  </section>
+  <section id="trafficView" class="hidden">
+    <header class="network-header">
+      <div class="network-heading">
+        <a class="back-link" href="/ui/0.4.25-alpha/">‹ Dashboard</a>
+        <span class="brand">流量统计中心</span>
+        <span class="sub">每日流量 · 节点排名 · 计费额度</span>
+      </div>
+      <div class="small" id="trafficStatus"></div>
+    </header>
+    <main class="traffic-main">
+      <div id="trafficError" class="warning-banner security-warning hidden" role="alert"></div>
+      <section class="traffic-toolbar">
+        <div>
+          <div class="network-title">流量历史分析</div>
+          <div class="small">图表每 15 分钟归档一次；所有计费数值遵循 Agent 原始口径</div>
+        </div>
+        <div class="traffic-controls">
+          <div class="range-tabs" aria-label="快捷时间范围">
+            <button class="range-btn" data-days="7" type="button">7 天</button>
+            <button class="range-btn active" data-days="30" type="button">30 天</button>
+            <button class="range-btn" data-days="90" type="button">90 天</button>
+          </div>
+          <form id="trafficDates" class="traffic-date-form">
+            <label>从 <input type="date" id="dateFrom" required></label>
+            <label>至 <input type="date" id="dateTo" required></label>
+            <button type="submit" class="btn primary">查询</button>
+          </form>
+        </div>
+      </section>
+      <div class="traffic-note">历史区间统计 = 同一计费周期内相邻累计检查点的差值；首个样本只作基准。跨日增量归入后一检查点日期；离线间隔较长的增量不强行估算。它不是云服务商账单。</div>
+      <div id="trafficCards" class="traffic-kpis"></div>
+      <section class="traffic-panel">
+        <div class="traffic-panel-head">
+          <div>
+            <div class="network-title">每日流量趋势</div>
+            <div class="small" id="trafficRangeLabel">按浏览器本地时区统计</div>
+          </div>
+          <label class="traffic-filter">服务器 <select id="trafficNodeSelect"><option value="">全部服务器</option></select></label>
+        </div>
+        <div class="traffic-legend"><span class="traffic-legend-in">入站</span><span class="traffic-legend-out">出站</span><span class="traffic-legend-bill">计费流量单独统计</span></div>
+        <div id="trafficChart" class="traffic-chart-scroll"></div>
+        <div id="trafficDayDetails" class="small traffic-day-details">点击日期查看当天流量</div>
+      </section>
+      <section class="traffic-panel">
+        <div class="traffic-panel-head">
+          <div>
+            <div class="network-title">服务器流量排名</div>
+            <div class="small">按所选日期范围的已确认计费增量排序；月额度取自 Agent 实时计费周期</div>
+          </div>
+        </div>
+        <div id="trafficRanking" class="traffic-table-wrap"></div>
+      </section>
+      <div class="traffic-note" id="trafficFootnote"></div>
+    </main>
+  </section>
+  <script src="/ui/0.4.25-alpha/traffic.js"></script>
+</body>
+</html>

@@ -44,7 +44,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.24-alpha"
+	serverVersion        = "0.4.25-alpha"
 	agentTargetVersion   = "0.4.22-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -350,6 +350,7 @@ func main() {
 	publicMux.HandleFunc("/api/v1/report", s.report)
 	publicMux.HandleFunc("/api/v1/nodes", s.dashboardOnly(s.nodesAPI))
 	publicMux.HandleFunc("/api/v1/network/history", s.dashboardOnly(s.networkHistoryAPI))
+	publicMux.HandleFunc("/api/v1/traffic/dashboard", s.dashboardOnly(s.trafficDashboardAPI))
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
@@ -858,6 +859,9 @@ func legacyDashboardTarget(path string) (string, bool) {
 	if !hasSlash || relative == "" || relative == "index.html" {
 		return target + "/", true
 	}
+	if relative == "traffic.html" {
+		return target + "/traffic.html", true
+	}
 	if relative == "network.html" {
 		return target + "/network.html", true
 	}
@@ -914,7 +918,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				return
 			}
 			r.URL.Path = rel
-			isHTML := rel == "/index.html" || rel == "/network.html"
+			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html"
 			isStatic := strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".css") || strings.HasSuffix(rel, ".svg")
 			if isHTML {
 				noStore(w)
@@ -925,12 +929,14 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 			return
 		}
 
-		isHTML := path == "/" || path == "/index.html" || path == "/network.html"
+		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html"
 		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".svg")
 		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			target := uiPrefix + "/"
 			if path == "/network.html" {
 				target = uiPrefix + "/network.html"
+			} else if path == "/traffic.html" {
+				target = uiPrefix + "/traffic.html"
 			}
 			q := r.URL.Query()
 			q.Del("v")
