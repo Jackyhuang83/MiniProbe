@@ -18,6 +18,10 @@ func newTrafficHistoryTestServer(t *testing.T) *server {
 	s := &server{
 		dataFile: filepath.Join(dir, "miniprobe.json"),
 		downloadsDir: filepath.Join(dir, "downloads"),
+		db: database{Nodes: map[string]nodeConfig{
+			"node-1": {ID: "node-1"}, "node-2": {ID: "node-2"},
+			"node-a": {ID: "node-a"}, "node-b": {ID: "node-b"},
+		}},
 	}
 	s.initTrafficHistory()
 	return s
@@ -231,5 +235,47 @@ func TestTrafficHistoryNeverBlocksAgentReportDuringBackgroundDiskWork(t *testing
 	}
 	if len(s.trafficHistoryPending) != 0 {
 		t.Fatal("contended history write must not mutate the pending buffer")
+	}
+}
+
+func TestTrafficHistoryDeletedNodeCannotBeRecreatedByLateReport(t *testing.T) {
+	s := newTrafficHistoryTestServer(t)
+	at := time.Date(2026, 10, 20, 10, 5, 0, 0, time.UTC)
+	cycle := at.Add(-24 * time.Hour)
+	s.ingestTrafficHistory("node-1", at, trafficTestSnapshot(cycle, 100, 200, 200))
+	if err := s.flushTrafficHistory(at.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	delete(s.db.Nodes, "node-1")
+	s.mu.Unlock()
+	s.removeTrafficHistory("node-1")
+	s.ingestTrafficHistory("node-1", at.Add(2*time.Hour), trafficTestSnapshot(cycle, 200, 400, 400))
+	if err := s.flushTrafficHistory(at.Add(3*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(s.trafficHistoryDir, "node-1")); !os.IsNotExist(err) {
+		t.Fatalf("removed node history was re-created: %v", err)
+	}
+	if len(s.trafficHistoryPending["node-1"]) != 0 {
+		t.Fatal("removed node must never have pending traffic checkpoints")
+	}
+}
+
+func TestTrafficHistoryNeverWaitsForMainStateLock(t *testing.T) {
+	s := newTrafficHistoryTestServer(t)
+	at := time.Date(2026, 10, 20, 10, 5, 0, 0, time.UTC)
+	sample := trafficTestSnapshot(at.Add(-time.Hour), 1, 2, 2)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		s.ingestTrafficHistory("node-1", at, sample)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("traffic history blocked the Agent report on main state lock")
 	}
 }
