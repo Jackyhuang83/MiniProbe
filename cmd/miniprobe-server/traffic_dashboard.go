@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Jackyhuang83/MiniProbe/internal/common"
 )
 
 // The traffic dashboard is read-only. It does not modify Agent billing,
@@ -183,14 +185,13 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 	type snapshot struct {
 		id string
 		config nodeConfig
-		state commonNodeViewTraffic
+		state common.TrafficSnapshot
+		lastSeen time.Time
 	}
 	nodes := make([]snapshot, 0, len(s.db.Nodes))
 	for id, config := range s.db.Nodes {
 		v := s.db.States[id]
-		nodes = append(nodes, snapshot{id: id, config: config, state: commonNodeViewTraffic{
-			LastSeen: v.LastSeen, Traffic: v.Traffic,
-		}})
+		nodes = append(nodes, snapshot{id: id, config: config, state: v.Traffic, lastSeen: v.LastSeen})
 	}
 	s.mu.RUnlock()
 
@@ -217,7 +218,7 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		historyTotals, points, incomplete := aggregateTrafficNode(history, start, end, zone, days)
 		quota := node.config.MonthlyTrafficLimit
-		used := node.state.Traffic.UsedBytes
+		used := node.state.UsedBytes
 		remaining := uint64(0)
 		if quota > used {
 			remaining = quota - used
@@ -228,12 +229,12 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		result.Nodes = append(result.Nodes, dashboardTrafficNode{
 			ID: node.id, DisplayName: node.config.DisplayName,
-			Online: !node.state.LastSeen.IsZero() && now.Sub(node.state.LastSeen) < 20*time.Second,
+			Online: !node.lastSeen.IsZero() && now.Sub(node.state.LastSeen) < 20*time.Second,
 			LastSeen: node.state.LastSeen,
 			History: historyTotals, HistoryPoints: points, Incomplete: incomplete,
 			QuotaBytes: quota, CycleUsedBytes: used, RemainingBytes: remaining,
 			UsagePercent: percent, Direction: node.config.TrafficDirection,
-			CycleStart: node.state.Traffic.CycleStart,
+			CycleStart: node.state.CycleStart,
 		})
 		if incomplete {
 			result.Incomplete = true
@@ -253,14 +254,3 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-// Kept intentionally small: a copy of just the live fields required by this
-// read-only endpoint, decoupled from unrelated network and host telemetry.
-type commonNodeViewTraffic struct {
-	LastSeen time.Time
-	Traffic  trafficSnapshotView
-}
-
-type trafficSnapshotView struct {
-	UsedBytes  uint64
-	CycleStart time.Time
-}
