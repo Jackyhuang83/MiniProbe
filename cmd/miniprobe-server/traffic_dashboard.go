@@ -37,6 +37,7 @@ type dashboardTrafficNode struct {
 	Online          bool                   `json:"online"`
 	LastSeen        time.Time              `json:"last_seen,omitempty"`
 	History         dashboardTrafficTotals `json:"history"`
+	Days            []dashboardTrafficDay  `json:"days"`
 	HistoryPoints   int                    `json:"history_points"`
 	Incomplete      bool                   `json:"incomplete"`
 	QuotaBytes      uint64                 `json:"quota_bytes"`
@@ -216,7 +217,18 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "traffic history unavailable", http.StatusInternalServerError)
 			return
 		}
-		historyTotals, points, incomplete := aggregateTrafficNode(history, start, end, zone, days)
+		nodeDays := make(map[string]*dashboardTrafficDay, len(ordered))
+		for _, day := range ordered {
+			nodeDays[day.Date] = &dashboardTrafficDay{Date: day.Date}
+		}
+		historyTotals, points, incomplete := aggregateTrafficNode(history, start, end, zone, nodeDays)
+		nodeDaily := make([]dashboardTrafficDay, 0, len(ordered))
+		for _, day := range ordered {
+			part := nodeDays[day.Date]
+			nodeDaily = append(nodeDaily, *part)
+			addTrafficTotals(&day.dashboardTrafficTotals, part.dashboardTrafficTotals)
+			day.Incomplete = day.Incomplete || part.Incomplete
+		}
 		quota := node.config.MonthlyTrafficLimit
 		used := node.state.UsedBytes
 		remaining := uint64(0)
@@ -231,7 +243,7 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 			ID: node.id, DisplayName: node.config.DisplayName,
 			Online: !node.lastSeen.IsZero() && now.Sub(node.state.LastSeen) < 20*time.Second,
 			LastSeen: node.state.LastSeen,
-			History: historyTotals, HistoryPoints: points, Incomplete: incomplete,
+			History: historyTotals, HistoryPoints: points, Incomplete: incomplete, Days: nodeDaily,
 			QuotaBytes: quota, CycleUsedBytes: used, RemainingBytes: remaining,
 			UsagePercent: percent, Direction: node.config.TrafficDirection,
 			CycleStart: node.state.CycleStart,
