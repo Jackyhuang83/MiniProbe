@@ -3,6 +3,9 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -156,5 +159,62 @@ func TestTrafficDashboardRespectsDashboardAuth(t *testing.T) {
 	handler(w, httptest.NewRequest(http.MethodGet, "/api/v1/traffic/dashboard", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("protected dashboard API leaked data: HTTP %d", w.Code)
+	}
+}
+
+func TestTrafficDashboardIsolatesUnreadableNodeHistory(t *testing.T) {
+	s := newTrafficHistoryTestServer(t)
+	now := time.Now().UTC()
+	// Use a recent fixed UTC day to keep the endpoint's range valid.
+	at := now.Add(-26 * time.Hour).Truncate(time.Hour)
+	cycle := at.Add(-24 * time.Hour)
+	s.db = database{
+		Settings: settings{DashboardMode: dashboardPublic},
+		Nodes: map[string]nodeConfig{
+			"node-a": {ID: "node-a", DisplayName: "Unreadable", MonthlyTrafficLimit: 1000},
+			"node-b": {ID: "node-b", DisplayName: "Healthy", MonthlyTrafficLimit: 2000},
+		},
+		States: map[string]common.NodeView{
+			"node-a": {Report: common.Report{Traffic: common.TrafficSnapshot{CycleStart: cycle, UsedBytes: 900}}},
+			"node-b": {Report: common.Report{Traffic: common.TrafficSnapshot{CycleStart: cycle, UsedBytes: 300}}},
+		},
+	}
+	s.ingestTrafficHistory("node-b", at, trafficTestSnapshot(cycle, 50, 100, 100))
+	s.ingestTrafficHistory("node-b", at.Add(30*time.Minute), trafficTestSnapshot(cycle, 100, 160, 160))
+	if err := s.flushTrafficHistory(now); err != nil {
+		t.Fatal(err)
+	}
+	// An invalid node directory forces a local read error in a portable way,
+	// without depending on Unix permissions or privileged CI runners.
+	if err := os.WriteFile(filepath.Join(s.trafficHistoryDir, "node-a"), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	date := at.Format("2006-01-02")
+	w := httptest.NewRecorder()
+	s.trafficDashboardAPI(w, httptest.NewRequest(http.MethodGet,
+		"/api/v1/traffic/dashboard?from="+date+"&to="+date+"&tz=0", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("one bad node must not fail all traffic metrics: %d %s", w.Code, w.Body.String())
+	}
+	var out dashboardTrafficResult
+	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Nodes) != 2 || out.Totals.UsedBytes != 60 || !out.Incomplete {
+		t.Fatalf("read errors should preserve healthy node totals: %+v", out)
+	}
+	got := map[string]dashboardTrafficNode{}
+	for _, n := range out.Nodes {
+		got[n.ID] = n
+	}
+	if !got["node-a"].HistoryError || !got["node-a"].Incomplete ||
+		got["node-a"].CycleUsedBytes != 900 || got["node-a"].RemainingBytes != 100 {
+		t.Fatalf("unreadable history hid live quota: %+v", got["node-a"])
+	}
+	if got["node-b"].HistoryError || got["node-b"].History.UsedBytes != 60 {
+		t.Fatalf("healthy history became unavailable: %+v", got["node-b"])
+	}
+	if strings.Contains(w.Body.String(), s.trafficHistoryDir) {
+		t.Fatal("history filesystem path leaked to Dashboard response")
 	}
 }
