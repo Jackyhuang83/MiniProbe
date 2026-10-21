@@ -39,6 +39,7 @@ type dashboardTrafficNode struct {
 	History         dashboardTrafficTotals `json:"history"`
 	Days            []dashboardTrafficDay  `json:"days"`
 	HistoryPoints   int                    `json:"history_points"`
+	HistoryError    bool                   `json:"history_error"`
 	Incomplete      bool                   `json:"incomplete"`
 	QuotaBytes      uint64                 `json:"quota_bytes"`
 	CycleUsedBytes  uint64                 `json:"cycle_used_bytes"`
@@ -222,15 +223,17 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, node := range nodes {
 		history, readErr := s.readTrafficHistory(node.id, baselineFrom, scanUntil)
+		// A single corrupt/unreadable node directory must not hide all other
+		// nodes or their live Agent billing status. Never expose file paths.
 		if readErr != nil {
-			http.Error(w, "traffic history unavailable", http.StatusInternalServerError)
-			return
+			history = nil
 		}
 		nodeDays := make(map[string]*dashboardTrafficDay, len(ordered))
 		for _, day := range ordered {
 			nodeDays[day.Date] = &dashboardTrafficDay{Date: day.Date}
 		}
 		historyTotals, points, incomplete := aggregateTrafficNode(history, start, end, zone, nodeDays)
+		incomplete = incomplete || readErr != nil
 		nodeDaily := make([]dashboardTrafficDay, 0, len(ordered))
 		for _, day := range ordered {
 			part := nodeDays[day.Date]
@@ -252,7 +255,7 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 			ID: node.id, DisplayName: node.config.DisplayName,
 			Online: !node.lastSeen.IsZero() && now.Sub(node.lastSeen) < 20*time.Second,
 			LastSeen: node.lastSeen,
-			History: historyTotals, HistoryPoints: points, Incomplete: incomplete, Days: nodeDaily,
+			History: historyTotals, HistoryPoints: points, HistoryError: readErr != nil, Incomplete: incomplete, Days: nodeDaily,
 			QuotaBytes: quota, CycleUsedBytes: used, RemainingBytes: remaining,
 			UsagePercent: percent, Direction: node.config.TrafficDirection,
 			CycleStart: node.state.CycleStart,

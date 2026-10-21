@@ -90,7 +90,7 @@ function renderRanking(){
     <tbody>${rows.map((node,index)=>{
       const hist=node.history||{},quota=node.quota_bytes||0;
       return `<tr class="${selected===node.id?'traffic-selected-row':''}">
-        <td><button class="traffic-node-link" type="button" data-node="${esc(node.id)}"><strong>${index+1}. ${esc(node.display_name||node.id)}</strong></button><span class="traffic-state ${node.online?'online':'offline'}">${node.online?'在线':'离线 / 未更新'}</span>${node.incomplete?'<span class="traffic-gap-text">部分数据缺口</span>':''}</td>
+        <td><button class="traffic-node-link" type="button" data-node="${esc(node.id)}"><strong>${index+1}. ${esc(node.display_name||node.id)}</strong></button><span class="traffic-state ${node.online?'online':'offline'}">${node.online?'在线':'离线 / 未更新'}</span>${node.history_error?'<span class="traffic-gap-text">历史读取失败 · 实时计费仍可查看</span>':node.incomplete?'<span class="traffic-gap-text">部分数据缺口</span>':''}</td>
         <td>${fmtTraffic(hist.used_bytes)}</td><td>${fmtTraffic(hist.inbound_bytes)}</td><td>${fmtTraffic(hist.outbound_bytes)}</td>
         <td>${quota?`${fmtTraffic(node.cycle_used_bytes)} / ${fmtTraffic(quota)}`:'未设置额度'}</td>
         <td>${quota?fmtTraffic(node.remaining_bytes):'—'}</td>
@@ -106,6 +106,8 @@ function render(){
   $('#trafficStatus').textContent=`${current.nodes.length} 台服务器 · ${current.retention_days} 天历史`;
   $('#trafficFootnote').textContent=`每台服务器第一个采样点只作为基准，不能追溯安装前流量。超过 2 小时的数据缺口不强行计算；当前计费数据来自最后一次 Agent 上报，离线时可能已经过期。历史最长 ${current.retention_days} 天。`;
   renderCards();renderChart();renderRanking();
+  const failed=(current.nodes||[]).filter(n=>n.history_error).length;
+  if(failed)showError(`${failed} 台服务器的历史暂不可读取，其他节点统计及现有计费状态不受影响。请通过 SSH 检查 Server 存储与权限。`);
 }
 async function load(){
   hideError();

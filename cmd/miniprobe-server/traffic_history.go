@@ -66,6 +66,17 @@ func (s *server) ingestTrafficHistory(nodeID string, at time.Time, traffic commo
 		traffic.CycleStart.After(at.Add(5*time.Minute)) {
 		return
 	}
+	// Lock order is always main state -> traffic history, matching the
+	// delete-node path. Keep the read lock until after the best-effort
+	// checkpoint is enqueued, so a concurrent deletion cannot re-create
+	// the removed node's history. Never block an Agent report on either lock.
+	if !s.mu.TryRLock() {
+		return
+	}
+	defer s.mu.RUnlock()
+	if _, registered := s.db.Nodes[nodeID]; !registered {
+		return
+	}
 	switch traffic.Direction {
 	case "inbound", "outbound", "total":
 	default:
