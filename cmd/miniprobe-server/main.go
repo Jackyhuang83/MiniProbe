@@ -233,6 +233,11 @@ type server struct {
 	historyAcc       map[string]*historyMinuteAccumulator
 	historyLastProbe map[string]time.Time
 
+	trafficHistoryDir     string
+	trafficHistoryMu      sync.Mutex
+	trafficHistoryPending map[string]map[trafficHistoryKey]trafficHistoryCheckpoint
+	trafficHistoryBytes   int64
+
 	routeMu     sync.RWMutex
 	routeFileMu sync.Mutex
 	routeStates map[string]routeNodeState
@@ -314,6 +319,7 @@ func main() {
 	}
 	s.agentAssets = loadAgentAssets(s.downloadsDir)
 	s.initNetworkHistory()
+	s.initTrafficHistory()
 	if created {
 		log.Printf("MiniProbe initialized. Dashboard mode: %s", s.db.Settings.DashboardMode)
 		if generatedDashboardPass != "" {
@@ -332,6 +338,7 @@ func main() {
 	go s.offlineMonitorLoop()
 	go s.trafficSummaryLoop()
 	go s.networkHistoryLoop()
+	go s.trafficHistoryLoop()
 	go s.routeWorker()
 	go s.ipAttributeWorker()
 
@@ -586,6 +593,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	s.scheduleIdentityLookup(rep.NodeID, egressIPv4, egressIPv6)
 	s.scheduleIPAttributes(rep.NodeID, egressIPv4, egressIPv6)
 	s.ingestProbeSample(rep.NodeID, rep.ProbeAt, rep.ProbeProtocol, rep.Probes)
+	s.ingestTrafficHistory(rep.NodeID, now, rep.Traffic)
 	s.enqueueRouteSnapshot(rep.NodeID, rep.RouteAt, rep.Routes)
 	for _, msg := range messages {
 		s.enqueueNotification(msg)
@@ -1447,6 +1455,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.removeNetworkHistory(id)
+		s.removeTrafficHistory(id)
 		if err := s.save(); err != nil {
 			http.Error(w, "save failed", http.StatusInternalServerError)
 			return
