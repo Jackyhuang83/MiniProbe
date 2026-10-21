@@ -80,7 +80,12 @@ func (s *server) ingestTrafficHistory(nodeID string, at time.Time, traffic commo
 		ResetDay: traffic.ResetDay, ResetTZMinutes: traffic.ResetTZMinutes,
 	}
 	key := trafficHistoryKey{Bucket: rec.Bucket, CycleStart: rec.CycleStart}
-	s.trafficHistoryMu.Lock()
+	// History is best-effort. A slow disk, cleanup or Dev2 history read may
+	// hold this lock in a background worker; never wait for it in /report.
+	// The next Agent report can supply a fresher cumulative checkpoint.
+	if !s.trafficHistoryMu.TryLock() {
+		return
+	}
 	defer s.trafficHistoryMu.Unlock()
 	if s.trafficHistoryPending == nil {
 		s.trafficHistoryPending = make(map[string]map[trafficHistoryKey]trafficHistoryCheckpoint)
