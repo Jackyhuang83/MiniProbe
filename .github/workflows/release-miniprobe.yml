@@ -85,6 +85,9 @@ jobs:
         run: |
           go test ./...
           go vet ./...
+          node --check cmd/miniprobe-server/web/app.js
+          node --check cmd/miniprobe-server/web/network.js
+          node --check cmd/miniprobe-server/web/traffic.js
 
       - name: Build release binaries
         if: steps.existing.outputs.publish == 'true'
