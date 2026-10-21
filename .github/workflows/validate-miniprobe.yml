@@ -26,5 +26,6 @@ jobs:
         run: |
           node --check cmd/miniprobe-server/web/app.js
           node --check cmd/miniprobe-server/web/network.js
+          node --check cmd/miniprobe-server/web/traffic.js
       - name: Cross-build release binaries (no publish)
         run: make release
