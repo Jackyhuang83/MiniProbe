@@ -21,15 +21,21 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      GOTOOLCHAIN: local
 
     steps:
       - name: Checkout source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - name: Verify patched Go toolchain
+        run: |
+          go version
+          test "$(go env GOVERSION)" = "go1.26.10"
 
       - name: Read version
         id: version
@@ -93,6 +99,13 @@ jobs:
       - name: Build release binaries
         if: steps.existing.outputs.publish == 'true'
         run: make release
+      - name: Verify embedded Go build version
+        if: steps.existing.outputs.publish == 'true'
+        run: |
+          for binary in dist/miniprobe-{server,agent}-linux-{amd64,arm64} dist/miniprobe-agent-linux-armv7; do
+            go version -m "$binary" | grep -Fq 'go1.26.10'
+          done
+
 
       - name: Create GitHub Release
         if: steps.existing.outputs.publish == 'true'
