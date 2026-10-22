@@ -88,6 +88,7 @@ jobs:
           node --check cmd/miniprobe-server/web/app.js
           node --check cmd/miniprobe-server/web/network.js
           node --check cmd/miniprobe-server/web/traffic.js
+          node scripts/test-traffic-ranking.cjs
 
       - name: Build release binaries
         if: steps.existing.outputs.publish == 'true'
