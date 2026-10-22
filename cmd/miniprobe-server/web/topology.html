@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>MiniProbe · 网络拓扑</title>
+  <link rel="stylesheet" href="/ui/0.4.28-alpha/style.css">
+  <link rel="stylesheet" href="/ui/0.4.28-alpha/topology.css">
+</head>
+<body>
+  <header class="network-header">
+    <div class="network-heading">
+      <a class="back-link" href="/ui/0.4.28-alpha/">‹ Dashboard</a>
+      <span class="brand">网络拓扑</span>
+      <span class="sub">VPS 链路观察 · 不控制代理</span>
+    </div>
+    <div class="header-actions">
+      <a class="btn" href="/ui/0.4.28-alpha/traffic.html">流量统计</a>
+      <span class="small" id="topologyRefresh">未加载</span>
+    </div>
+  </header>
+  <main class="topology-main">
+    <div id="topologyError" class="warning-banner security-warning hidden" role="alert"></div>
+    <div id="topologyDisabled" class="topology-empty hidden">
+      <strong>网络拓扑尚未启用</strong>
+      <p>请通过服务器 SSH → <code>miniprobe</code> → 15「网络拓扑」配置节点角色及逻辑链路，然后启用模块。</p>
+      <p>无需升级 Agent；不会更改任何代理配置、端口或防火墙。</p>
+    </div>
+    <section id="topologyView" class="hidden">
+      <div class="topology-kpis">
+        <article class="topology-kpi"><div class="small">链路健康 · 正常 / 总数</div><strong id="topologyHealthy">—</strong><span>未定向探测的链路不计为正常</span></article>
+        <article class="topology-kpi"><div class="small">今日转发流量</div><strong id="topologyTraffic">未采集</strong><span>仅统计真实链路级流量</span></article>
+        <article class="topology-kpi"><div class="small">链路平均延迟</div><strong id="topologyLatency">未探测</strong><span>必须由源 VPS 向目标 VPS 实测</span></article>
+      </div>
+      <section class="topology-panel">
+        <div class="topology-toolbar">
+          <div>
+            <div class="network-title">VPS 网络拓扑</div>
+            <div class="small">实线与颜色不代表流量已确认 · 拓扑配置仅表示逻辑关系</div>
+          </div>
+          <div class="range-tabs" aria-label="拓扑排列方式">
+            <button class="range-btn active" id="topologyByRole" type="button" aria-pressed="true">按服务器角色</button>
+            <button class="range-btn" id="topologyByGroup" type="button" aria-pressed="false">按分组</button>
+          </div>
+        </div>
+        <div class="topology-legend">
+          <span><i class="topology-legend-line"></i>已配置，未探测</span>
+          <span><i class="topology-legend-online"></i>节点在线</span>
+          <span><i class="topology-legend-offline"></i>节点离线</span>
+          <span>代理协议健康：未测试</span>
+        </div>
+        <div id="topologyCanvas" class="topology-canvas" aria-label="VPS 网络拓扑画布"></div>
+      </section>
+      <div class="topology-bottom">
+        <section class="topology-panel">
+          <div class="network-title">已配置逻辑链路</div>
+          <div id="topologyLinks" class="topology-link-list"></div>
+        </section>
+        <section class="topology-panel" aria-live="polite">
+          <div class="network-title">节点 / 链路详情</div>
+          <div id="topologyDetail" class="topology-detail small">点击节点或连线查看详情</div>
+        </section>
+      </div>
+      <div class="topology-footnote">DEV1 阶段只提供人工配置的逻辑拓扑、现有节点在线状态。链路可达性和代理协议健康将在 DEV2 实测；转发流量将在 DEV3 依据真实链路级计数器采集。数据缺失不会显示为 0 或正常。</div>
+    </section>
+  </main>
+  <script src="/ui/0.4.28-alpha/topology.js"></script>
+</body>
+</html>

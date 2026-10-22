@@ -213,6 +213,7 @@ type database struct {
 	States        map[string]common.NodeView     `json:"states"`
 	Notifications map[string]notificationState   `json:"notifications,omitempty"`
 	AgentUpgrades map[string]agentUpgradeRequest `json:"agent_upgrades,omitempty"`
+	Topology topologyConfig `json:"topology,omitempty"`
 }
 
 type loginFailures struct {
@@ -351,6 +352,7 @@ func main() {
 	publicMux.HandleFunc("/api/v1/nodes", s.dashboardOnly(s.nodesAPI))
 	publicMux.HandleFunc("/api/v1/network/history", s.dashboardOnly(s.networkHistoryAPI))
 	publicMux.HandleFunc("/api/v1/traffic/dashboard", s.dashboardOnly(s.trafficDashboardAPI))
+	publicMux.HandleFunc("/api/v1/topology", s.dashboardOnly(s.topologyAPI))
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
@@ -865,6 +867,9 @@ func legacyDashboardTarget(path string) (string, bool) {
 	if relative == "network.html" {
 		return target + "/network.html", true
 	}
+	if relative == "topology.html" {
+		return target + "/topology.html", true
+	}
 	if legacyDashboardAsset.MatchString(relative) {
 		return target + "/" + relative, true
 	}
@@ -918,7 +923,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				return
 			}
 			r.URL.Path = rel
-			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html"
+			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html" || rel == "/topology.html"
 			isStatic := strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".css") || strings.HasSuffix(rel, ".svg")
 			if isHTML {
 				noStore(w)
@@ -929,7 +934,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 			return
 		}
 
-		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html"
+		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html" || path == "/topology.html"
 		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".svg")
 		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			target := uiPrefix + "/"
@@ -937,6 +942,8 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				target = uiPrefix + "/network.html"
 			} else if path == "/traffic.html" {
 				target = uiPrefix + "/traffic.html"
+			} else if path == "/topology.html" {
+				target = uiPrefix + "/topology.html"
 			}
 			q := r.URL.Query()
 			q.Del("v")
@@ -1093,6 +1100,7 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/node-command", s.localNodeCommand)
 	mux.HandleFunc("/v1/agent-upgrade", s.localAgentUpgrade)
 	mux.HandleFunc("/v1/route-baseline", s.localRouteBaseline)
+	mux.HandleFunc("/v1/topology", s.localTopology)
 	mux.HandleFunc("/v1/telegram-test", s.localTelegramTest)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("ok")) })
 	mux.HandleFunc("/v1/server-version", func(w http.ResponseWriter, r *http.Request) {
@@ -1455,6 +1463,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 		delete(s.db.States, id)
 		delete(s.db.Notifications, id)
 		delete(s.db.AgentUpgrades, id)
+		purgeTopologyNodeLocked(&s.db.Topology, id)
 		s.mu.Unlock()
 		if !ok {
 			http.Error(w, "node not found", http.StatusNotFound)
@@ -2326,6 +2335,7 @@ func runManager(socketPath string) error {
 		fmt.Println("12. Agent 版本管理 / 集中升级")
 		fmt.Println("13. Server 检查更新 / 升级")
 		fmt.Println("14. IP 属性检测（默认关闭）")
+		fmt.Println("15. 网络拓扑（逻辑链路，只读观察）")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")
@@ -2360,6 +2370,8 @@ func runManager(socketPath string) error {
 			}
 		case "14":
 			manageIPAttributeSettings(reader, client)
+		case "15":
+			manageTopology(reader, client)
 		case "0", "q", "Q":
 			return nil
 		default:
