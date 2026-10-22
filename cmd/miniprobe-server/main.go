@@ -44,7 +44,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.25-alpha"
+	serverVersion        = "0.4.26-alpha"
 	agentTargetVersion   = "0.4.22-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
