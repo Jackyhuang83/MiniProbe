@@ -133,6 +133,7 @@ type Report struct {
 	Metrics       Metrics         `json:"metrics"`
 	Traffic       TrafficSnapshot `json:"traffic"`
 	Probes        []ProbeResult   `json:"probes"`
+	TopologyProbes []TopologyProbeResult `json:"topology_probes,omitempty"`
 	At            time.Time       `json:"at"`
 }
 
@@ -161,6 +162,41 @@ type ProbePolicy struct {
 	Telecom  string `json:"telecom"`
 	Unicom   string `json:"unicom"`
 	Mobile   string `json:"mobile"`
+}
+
+
+// TopologyProbePolicy authorizes only bounded outbound TCP handshakes to
+// administrator-configured literal IP:port targets. It cannot execute commands
+// or modify any proxy configuration. Signed separately for legacy Agents.
+type TopologyProbeTarget struct {
+    LinkID string `json:"link_id"`
+    To string `json:"to"`
+    Address string `json:"address"`
+    Port uint16 `json:"port"`
+}
+type TopologyProbePolicy struct {
+    Version int64 `json:"version"`
+    NodeID string `json:"node_id"`
+    Enabled bool `json:"enabled"`
+    IntervalSeconds int `json:"interval_seconds"`
+    Targets []TopologyProbeTarget `json:"targets"`
+}
+type SignedTopologyProbePolicy struct {
+    Policy TopologyProbePolicy `json:"policy"`
+    Signature string `json:"signature"`
+}
+// Contains no target address or proxy credentials; the Server verifies the
+// link association and strictly bounds the reported values.
+type TopologyProbeResult struct {
+    LinkID string `json:"link_id"`
+    To string `json:"to"`
+    Revision int64 `json:"revision"`
+    ProbeAt time.Time `json:"probe_at"`
+    Attempts int `json:"attempts"`
+    Succeeded int `json:"succeeded"`
+    MinMS float64 `json:"min_ms"`
+    MaxMS float64 `json:"max_ms"`
+    AvgMS float64 `json:"avg_ms"`
 }
 
 type SignedProbePolicy struct {
@@ -195,6 +231,7 @@ type ReportResponse struct {
 	OK            bool                 `json:"ok"`
 	Policy        *SignedPolicy        `json:"policy,omitempty"`
 	ProbePolicy   *SignedProbePolicy   `json:"probe_policy,omitempty"`
+	TopologyProbePolicy *SignedTopologyProbePolicy `json:"topology_probe_policy,omitempty"`
 	UpgradePolicy *SignedUpgradePolicy `json:"upgrade_policy,omitempty"`
 }
 

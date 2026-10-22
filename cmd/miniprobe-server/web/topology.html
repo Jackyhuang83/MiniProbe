@@ -4,18 +4,18 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MiniProbe · 网络拓扑</title>
-  <link rel="stylesheet" href="/ui/0.4.28-alpha/style.css">
-  <link rel="stylesheet" href="/ui/0.4.28-alpha/topology.css">
+  <link rel="stylesheet" href="/ui/0.4.29-alpha/style.css">
+  <link rel="stylesheet" href="/ui/0.4.29-alpha/topology.css">
 </head>
 <body>
   <header class="network-header">
     <div class="network-heading">
-      <a class="back-link" href="/ui/0.4.28-alpha/">‹ Dashboard</a>
+      <a class="back-link" href="/ui/0.4.29-alpha/">‹ Dashboard</a>
       <span class="brand">网络拓扑</span>
       <span class="sub">VPS 链路观察 · 不控制代理</span>
     </div>
     <div class="header-actions">
-      <a class="btn" href="/ui/0.4.28-alpha/traffic.html">流量统计</a>
+      <a class="btn" href="/ui/0.4.29-alpha/traffic.html">流量统计</a>
       <span class="small" id="topologyRefresh">未加载</span>
     </div>
   </header>
@@ -36,7 +36,7 @@
         <div class="topology-toolbar">
           <div>
             <div class="network-title">VPS 网络拓扑</div>
-            <div class="small">实线与颜色不代表流量已确认 · 拓扑配置仅表示逻辑关系</div>
+            <div class="small">实线表示已取得定向网络探测结果；虚线表示未探测 · 不表示代理业务健康</div>
           </div>
           <div class="range-tabs" aria-label="拓扑排列方式">
             <button class="range-btn active" id="topologyByRole" type="button" aria-pressed="true">按服务器角色</button>
@@ -44,7 +44,7 @@
           </div>
         </div>
         <div class="topology-legend">
-          <span><i class="topology-legend-line"></i>虚线：已配置，未探测；颜色仅用于区分链路</span>
+          <span><i class="topology-legend-line"></i>虚线：未探测；实线：已探测；红线：定向 TCP 连续失败</span>
           <span><i class="topology-legend-online"></i>节点在线</span>
           <span><i class="topology-legend-offline"></i>节点离线</span>
           <span>代理协议健康：未测试</span>
@@ -61,9 +61,9 @@
           <div id="topologyDetail" class="topology-detail small">点击节点或连线查看详情</div>
         </section>
       </div>
-      <div class="topology-footnote">DEV1 阶段只提供人工配置的逻辑拓扑、现有节点在线状态。链路可达性和代理协议健康将在 DEV2 实测；转发流量将在 DEV3 依据真实链路级计数器采集。数据缺失不会显示为 0 或正常。</div>
+      <div class="topology-footnote">DEV2 阶段：仅对已配置目标 IP 与端口的有向链路，由来源 Agent 进行每 60 秒一轮的 TCP 握手探测；每轮 3 次连接尝试，最多 2 条链路并发。TCP 可达不代表 sing-box、Xray、Snell 等代理协议可用。没有协议级验证时明确显示「未测试」。DEV3 才采集实际转发流量，缺失数据不显示为 0。</div>
     </section>
   </main>
-  <script src="/ui/0.4.28-alpha/topology.js"></script>
+  <script src="/ui/0.4.29-alpha/topology.js"></script>
 </body>
 </html>

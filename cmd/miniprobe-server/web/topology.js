@@ -6,6 +6,11 @@
   const roleOrder = ["entry", "relay", "exit"];
   const roleNames = {entry:"入口", relay:"中转", exit:"出口"};
   const linkPalette = ["#58a1d2","#c48af6","#ebaf72","#50c5b0","#cf88a3","#a1bb69"];
+  const networkNames={healthy:"网络正常",degraded:"网络降级",interrupted:"网络中断",stale:"数据过期",pending:"尚未探测"};
+  const probeNames={not_configured:"未配置目标",agent_unsupported:"来源 Agent 暂不支持",pending:"等待首轮探测",measured:"已取得定向探测结果"};
+  const ms=(v)=>v===null || v===undefined?"—":Number(v).toFixed(1)+" ms";
+  const pct=(v)=>v===null || v===undefined?"—":Number(v).toFixed(1)+"%";
+  const when=(v)=>!v || v.startsWith("0001")?"—":new Date(v).toLocaleString();
   let data = null;
   let grouped = false;
 
@@ -45,10 +50,17 @@
       row("备注",l.label || "无"),
       row("逻辑关系","已配置"),
       row("端点状态",l.endpoint_status === "online" ? "两端 Agent 均在线" : "至少一端 Agent 离线"),
-      row("定向 RTT","未探测（DEV2）"),
-      row("丢包 / 失败率","未探测（DEV2）"),
-      row("网络可达性","尚未验证"),
-      row("代理协议健康","尚未验证"),
+      row("探测配置",probeNames[l.probe_state]||"未知"),
+      row("定向网络状态",networkNames[l.network_status]||"未知"),
+      row("网络可达性",l.reachability==="reachable"?"TCP 可连接":l.reachability==="unreachable"?"TCP 无法连接":l.reachability==="stale"?"结果已过期":"尚未验证"),
+      row("最近 RTT",ms(l.rtt_ms)),
+      row("最低 / 最高 RTT",ms(l.min_ms)+" / "+ms(l.max_ms)),
+      row("历史平均 RTT",ms(l.avg_ms)),
+      row("最近 20 次探测窗口失败率",pct(l.loss_pct)),
+      row("最近成功",when(l.last_success)),
+      row("最近故障",when(l.last_failure)),
+      row("最近一次探测",when(l.last_probe)),
+      row("代理协议健康","未测试：TCP 握手成功不等于代理业务可用"),
       row("今日转发流量","未采集（DEV3）"),
       row("实时流量","未采集（DEV3）"));
   }
@@ -88,8 +100,10 @@
       const x1=a.x+235,y1=a.y+27,x2=b.x,y2=b.y+27;
       const bend=Math.max(65,Math.abs(x2-x1)*.42);
       const curve="M "+x1+" "+y1+" C "+(x1+bend)+" "+y1+" "+(x2-bend)+" "+y2+" "+x2+" "+y2;
-      const color = l.endpoint_status==="endpoint_offline" ? "#677789" : linkPalette[index%linkPalette.length];
-      paths.append(svgElement("path",{d:curve,class:"topology-edge"+(l.endpoint_status==="endpoint_offline"?" endpoint-offline":""),style:"stroke:"+color}));
+      const color = l.endpoint_status==="endpoint_offline" ? "#677789" :
+        l.network_status==="interrupted" ? "#e56b72" : linkPalette[index%linkPalette.length];
+      const solid=l.reachability==="reachable"||l.reachability==="unreachable";
+      paths.append(svgElement("path",{d:curve,class:"topology-edge"+(l.endpoint_status==="endpoint_offline"?" endpoint-offline":""),style:"stroke:"+color+";stroke-dasharray:"+(solid?"none":"7 6")}));
       const hit=svgElement("path",{d:curve,class:"topology-edge-hit",tabindex:"0",role:"button","aria-label":"查看逻辑链路 "+l.from+" 到 "+l.to});
       hit.addEventListener("click",()=>showLink(l));
       hit.addEventListener("keydown",(ev)=>{if(ev.key==="Enter" || ev.key===" "){ev.preventDefault();showLink(l);}});
@@ -126,7 +140,9 @@
     for(const l of data.links){
       const b=element("button",(names.get(l.from)||l.from)+" → "+(names.get(l.to)||l.to),"topology-link-button");
       b.type="button";
-      b.append(element("span",(l.label?l.label+" · ":"")+"已配置 · 尚未定向探测 · 转发流量未采集"));
+      b.append(element("span",(l.label?l.label+" · ":"")+
+        (l.probe_state==="measured"?(networkNames[l.network_status]||"已探测"):(probeNames[l.probe_state]||"尚未探测"))+
+        " · 代理协议未验证 · 转发流量未采集"));
       b.addEventListener("click",()=>showLink(l));
       list.append(b);
     }

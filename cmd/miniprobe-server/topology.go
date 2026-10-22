@@ -2,6 +2,7 @@ package main
 
 import (
     "fmt"
+    "net"
     "net/http"
     "sort"
     "strconv"
@@ -26,9 +27,12 @@ type topologyLinkConfig struct {
     From string `json:"from"`
     To string `json:"to"`
     Label string `json:"label,omitempty"`
+    ProbeAddress string `json:"probe_address,omitempty"` // local socket only, never public API
+    ProbePort uint16 `json:"probe_port,omitempty"`
 }
 type topologyConfig struct {
     Enabled bool `json:"enabled"`
+    Revision int64 `json:"revision"`
     Nodes []topologyNodeConfig `json:"nodes"`
     Links []topologyLinkConfig `json:"links"`
 }
@@ -52,7 +56,17 @@ type topologyLinkView struct {
     EndpointStatus string `json:"endpoint_status"` // online / endpoint_offline
     Reachability string `json:"reachability"` // not_tested in DEV1
     ProxyHealth string `json:"proxy_health"` // not_tested in DEV1
-    TrafficStatus string `json:"traffic_status"` // not_collected in DEV1
+    TrafficStatus string `json:"traffic_status"` // not_collected until DEV3
+    ProbeState string `json:"probe_state"` // not_configured / agent_unsupported / pending / measured
+    NetworkStatus string `json:"network_status"` // healthy / degraded / interrupted / stale / pending
+    RTTMS *float64 `json:"rtt_ms"`
+    MinMS *float64 `json:"min_ms"`
+    MaxMS *float64 `json:"max_ms"`
+    AvgMS *float64 `json:"avg_ms"`
+    LossPct *float64 `json:"loss_pct"`
+    LastSuccess time.Time `json:"last_success,omitempty"`
+    LastFailure time.Time `json:"last_failure,omitempty"`
+    LastProbe time.Time `json:"last_probe,omitempty"`
 }
 type topologySummary struct {
     TotalLinks int `json:"total_links"`
@@ -93,6 +107,7 @@ func validateTopology(in topologyConfig, known map[string]nodeConfig) (topologyC
         out.Nodes = append(out.Nodes, n)
     }
     edgeSeen := make(map[string]bool, len(in.Links))
+    tasksPerSource:=map[string]int{}
     for _, l := range in.Links {
         if l.From == l.To { return topologyConfig{}, fmt.Errorf("链路不能指向自身 %q", l.From) }
         if !seen[l.From] || !seen[l.To] { return topologyConfig{}, fmt.Errorf("链路 %q → %q 的端点未加入拓扑", l.From, l.To) }
@@ -100,6 +115,13 @@ func validateTopology(in topologyConfig, known map[string]nodeConfig) (topologyC
         if edgeSeen[key] { return topologyConfig{}, fmt.Errorf("重复有向链路 %q → %q", l.From, l.To) }
         l.Label = strings.TrimSpace(l.Label)
         if !topologyTextValid(l.Label, 40) { return topologyConfig{}, fmt.Errorf("链路名称无效") }
+        l.ProbeAddress=strings.TrimSpace(l.ProbeAddress)
+        if (l.ProbeAddress=="") != (l.ProbePort==0) {return topologyConfig{}, fmt.Errorf("定向探测须同时配置目标 IP 和端口")}
+        if l.ProbeAddress!="" {
+            if net.ParseIP(l.ProbeAddress)==nil || !validTopologyProbeIP(l.ProbeAddress) {return topologyConfig{}, fmt.Errorf("目标地址必须是非本地/非链路本地的 IPv4/IPv6 字面量")}
+            tasksPerSource[l.From]++
+            if tasksPerSource[l.From]>topologyMaxTargetsPerAgent {return topologyConfig{}, fmt.Errorf("每台来源 VPS 最多配置 %d 个探测目标",topologyMaxTargetsPerAgent)}
+        }
         edgeSeen[key] = true
         out.Links = append(out.Links, l)
     }
@@ -127,8 +149,11 @@ func (s *server) localTopology(w http.ResponseWriter, r *http.Request) {
             http.Error(w, err.Error(), http.StatusBadRequest)
             return
         }
+        next.Revision=s.db.Topology.Revision+1
+        if next.Revision<=1 {next.Revision=2}
         s.db.Topology = next
         s.mu.Unlock()
+        s.resetTopologyStats()
         // Existing MiniProbe persistence loop also writes the database every 30s.
         if err := s.save(); err != nil {
             http.Error(w, "save failed", http.StatusInternalServerError)
@@ -141,8 +166,8 @@ func (s *server) localTopology(w http.ResponseWriter, r *http.Request) {
     }
 }
 
-// DEV1 deliberately never infers link health from two online nodes,
-// server NIC byte counters, or measurements to third-party public targets.
+// Never infer link health from two online nodes, server NIC traffic,
+// or RTT measurements to unrelated public test targets.
 func (s *server) topologyAPI(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodGet {
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -157,6 +182,10 @@ func (s *server) topologyAPI(w http.ResponseWriter, r *http.Request) {
     out.Enabled = cfg.Enabled
     if cfg.Enabled {
         now := time.Now()
+        healthyCount:=0
+        checkedCount:=0
+        totalRTT:=0.0
+        rttCount:=0
         included := make(map[string]topologyNodeView, len(cfg.Nodes))
         for _, n := range cfg.Nodes {
             node, exists := s.db.Nodes[n.ID]
@@ -178,12 +207,37 @@ func (s *server) topologyAPI(w http.ResponseWriter, r *http.Request) {
             if !okFrom || !okTo { continue }
             endpoint := "online"
             if !from.Online || !to.Online { endpoint = "endpoint_offline" }
-            out.Links = append(out.Links, topologyLinkView{
-                ID:l.From + "~" + l.To, From:l.From, To:l.To, Label:l.Label,
+            view:=topologyLinkView{
+                ID:topologyEdgeID(l.From,l.To), From:l.From, To:l.To, Label:l.Label,
                 EndpointStatus:endpoint, Reachability:"not_tested",
                 ProxyHealth:"not_tested", TrafficStatus:"not_collected",
-            })
+                ProbeState:"not_configured",NetworkStatus:"pending",
+            }
+            if l.ProbeAddress!="" && l.ProbePort!=0 {
+                view.ProbeState="agent_unsupported"
+                state:=s.db.States[l.From]
+                if hasCapability(state.Capabilities,topologyProbeCapability) {
+                    view.ProbeState="pending"
+                    m:=s.topologyMeasurement(view.ID,cfg.Revision,now)
+                    if m.HasData {
+                        view.ProbeState="measured"
+                        view.Reachability=m.Reachability
+                        view.NetworkStatus=m.NetworkStatus
+                        view.RTTMS=m.RTTMS;view.MinMS=m.MinMS;view.MaxMS=m.MaxMS;view.AvgMS=m.AvgMS
+                        view.LossPct=m.LossPct
+                        view.LastProbe=m.LastProbe;view.LastSuccess=m.LastSuccess;view.LastFailure=m.LastFailure
+                        if m.NetworkStatus!="stale" && endpoint=="online" {
+                            checkedCount++
+                            if m.NetworkStatus=="healthy" {healthyCount++}
+                            if m.RTTMS!=nil {totalRTT+=*m.RTTMS;rttCount++}
+                        }
+                    }
+                }
+            }
+            out.Links=append(out.Links,view)
         }
+        if checkedCount>0 {out.Summary.HealthyLinks=&healthyCount}
+        if rttCount>0 {avg:=totalRTT/float64(rttCount);out.Summary.AverageRTTMS=&avg}
         sort.Slice(out.Nodes,func(i,j int)bool{
             if out.Nodes[i].Role != out.Nodes[j].Role { return topologyRoleOrder(out.Nodes[i].Role) < topologyRoleOrder(out.Nodes[j].Role) }
             if out.Nodes[i].Group != out.Nodes[j].Group { return out.Nodes[i].Group < out.Nodes[j].Group }
@@ -203,6 +257,8 @@ func purgeTopologyNodeLocked(cfg *topologyConfig, id string) {
     for _,l := range cfg.Links { if l.From != id && l.To != id { links=append(links,l) } }
     cfg.Nodes=nodes
     cfg.Links=links
+    cfg.Revision++
+    if cfg.Revision<=1 {cfg.Revision=2}
 }
 
 func topologyRoleOrder(v string) int {
@@ -229,9 +285,9 @@ func manageTopology(r *bufio.Reader, client *localClient) {
         fmt.Println("\n===== 网络拓扑（仅监控，不修改代理）=====")
         fmt.Printf("状态: %s；节点 %d；逻辑链路 %d\n", map[bool]string{true:"启用",false:"关闭"}[cfg.Enabled], len(cfg.Nodes), len(cfg.Links))
         for _, n := range cfg.Nodes { fmt.Printf(" · %s [%s] %s\n", byID[n.ID], topologyRoleLabel(n.Role), n.Group) }
-        for i, l := range cfg.Links { fmt.Printf(" %d. %s → %s  %s\n", i+1, byID[l.From], byID[l.To], l.Label) }
+        for i, l := range cfg.Links { state:="未配置探测";if l.ProbeAddress!="" {state="TCP 定向探测已配置"};fmt.Printf(" %d. %s → %s  %s [%s]\n", i+1, byID[l.From], byID[l.To], l.Label,state) }
         fmt.Println("1. 启用/关闭拓扑  2. 设置节点角色/分组  3. 从拓扑移除节点")
-        fmt.Println("4. 添加有向逻辑链路  5. 删除链路  0. 返回")
+        fmt.Println("4. 添加有向逻辑链路  5. 删除链路  6. 设置定向 TCP 探测  0. 返回")
         choice := prompt(r, "请选择: ")
         save := true
         switch choice {
@@ -268,6 +324,17 @@ func manageTopology(r *bufio.Reader, client *localClient) {
             idx, err := strconv.Atoi(prompt(r, "删除链路序号: "))
             if err != nil || idx < 1 || idx > len(cfg.Links) { fmt.Println("链路序号无效"); save = false; break }
             cfg.Links = append(cfg.Links[:idx-1],cfg.Links[idx:]...)
+        case "6":
+            idx,err:=strconv.Atoi(prompt(r,"设置链路序号: "))
+            if err!=nil || idx<1 || idx>len(cfg.Links) {fmt.Println("链路序号无效");save=false;break}
+            fmt.Println("只执行 TCP 握手，不发送代理密码，不检测代理协议。NAT/IPv6 节点请填来源 VPS 可直达的已有业务监听地址。")
+            fmt.Println("禁止环回/链路本地地址；无需开放额外的 MiniProbe 入站端口。")
+            ip:=strings.TrimSpace(prompt(r,"目标 IP（留空关闭该链路探测）: "))
+            if ip=="" {cfg.Links[idx-1].ProbeAddress="";cfg.Links[idx-1].ProbePort=0;break}
+            n,err:=strconv.Atoi(prompt(r,"目标 TCP 端口（1-65535）: "))
+            if err!=nil || n<1 || n>65535 {fmt.Println("端口无效");save=false;break}
+            cfg.Links[idx-1].ProbeAddress=ip
+            cfg.Links[idx-1].ProbePort=uint16(n)
         case "0","q","Q":
             return
         default:
@@ -277,7 +344,7 @@ func manageTopology(r *bufio.Reader, client *localClient) {
         if !save { continue }
         if err := client.request(http.MethodPut, "/v1/topology", cfg, nil); err != nil {
             fmt.Println("保存失败（配置未通过校验）:",err)
-        } else { fmt.Println("已保存。当前仅配置逻辑关系；链路探测和转发流量将在 DEV2/DEV3 实现。") }
+        } else { fmt.Println("已保存。新 Agent 自动接受 Server 签名的 TCP 定向探测策略；转发流量仍将在 DEV3 实现。") }
     }
 }
 func pickTopologyNode(r *bufio.Reader, nodes []adminNodeView, title string) string {

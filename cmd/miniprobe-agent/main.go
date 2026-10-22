@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	agentVersion         = "0.4.28-alpha"
+	agentVersion         = "0.4.29-alpha"
 	selfUpdateCapability = "self-update-v1"
 	maxAgentUpdateBytes  = int64(32 << 20)
 	probeInterval        = 10 * time.Second
@@ -182,6 +182,7 @@ func main() {
 	lastRouteKey := ""
 	lastRouteAt := time.Time{}
 	var lastRoutes []common.RouteResult
+	topologyRunner := newTopologyProbeRunner()
 	lastUpgradeRequest := ""
 	lastUpgradeAttempt := time.Time{}
 
@@ -240,9 +241,9 @@ func main() {
 		recentInspection := inspection
 		inspectionMu.RUnlock()
 		rep := common.Report{
-			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: configuredEndpoint, Capabilities: []string{selfUpdateCapability}, PolicyVersion: state.PolicyVersion,
+			NodeID: c.NodeID, AgentVersion: agentVersion, AgentEndpoint: configuredEndpoint, Capabilities: []string{selfUpdateCapability, topologyProbeCapability}, PolicyVersion: state.PolicyVersion,
 			ProbeRegion: probeCfg.region, ProbeProtocol: probeProtocol, ProbeAt: lastProbeAt, RouteAt: reportRouteAt, Routes: reportRoutes,
-			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes,
+			Info: reportInfo, Metrics: m, Traffic: traffic, Probes: lastProbes, TopologyProbes: topologyRunner.snapshot(),
 			Unlock: recentInspection.Unlock, EgressIPv4: recentInspection.IPv4, EgressIPv6: recentInspection.IPv6,
 			At: time.Now().UTC(),
 		}
@@ -297,6 +298,12 @@ func main() {
 						}
 					} else if changed {
 						stateChanged = true
+					}
+				}
+				if response.TopologyProbePolicy != nil {
+					if err := topologyRunner.apply(c.NodeID, pubKey, response.TopologyProbePolicy); err != nil && time.Since(lastErrLog) >= time.Minute {
+						fmt.Fprintf(os.Stderr, "%s MiniProbe topology policy ignored: %v\n", time.Now().Format(time.RFC3339), err)
+						lastErrLog = time.Now()
 					}
 				}
 				if response.UpgradePolicy != nil {
