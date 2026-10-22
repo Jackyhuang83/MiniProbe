@@ -1,0 +1,44 @@
+.topology-main{max-width:1400px;padding:16px 12px 34px}
+.topology-kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.topology-kpi,.topology-panel{background:linear-gradient(180deg,#172130,#111a27);border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:15px;box-shadow:var(--shadow)}
+.topology-kpi strong{display:block;margin:10px 0 4px;font-size:24px;color:#eff5fd;line-height:1.2}
+.topology-kpi span{font-size:10px;color:var(--muted)}
+.topology-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.topology-legend{display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:#9baabd;margin:14px 0 12px}
+.topology-legend>span{display:inline-flex;align-items:center;gap:7px}
+.topology-legend-line{width:25px;border-top:2px dashed #58a1d2}
+.topology-legend-online,.topology-legend-offline{width:9px;height:9px;border-radius:50%;background:#13d6a1}
+.topology-legend-offline{background:#8995a5}
+.topology-canvas{overflow-x:auto;overflow-y:hidden;border:1px solid rgba(255,255,255,.05);border-radius:10px;background:radial-gradient(circle at 50% 20%,#192a3b,#0e1723 80%);min-height:340px}
+.topology-canvas svg{display:block;width:100%;min-width:820px}
+.topology-canvas .topology-edge{stroke:#58a1d2;stroke-width:2;stroke-dasharray:7 6;fill:none;opacity:.8}
+.topology-canvas .topology-edge.endpoint-offline{stroke:#677789;opacity:.65}
+.topology-canvas .topology-edge-hit{stroke:transparent;stroke-width:19;fill:none;cursor:pointer}
+.topology-canvas .topology-node{cursor:pointer;outline:none}
+.topology-canvas .topology-node rect{fill:#1b2a3a;stroke:#40556a;stroke-width:1.4}
+.topology-canvas .topology-node:focus-visible rect,.topology-canvas .topology-node:hover rect{stroke:#7ccaf3;stroke-width:2}
+.topology-canvas .topology-node text{fill:#ecf4fb;pointer-events:none}
+.topology-canvas .topology-role{font-size:15px;fill:#d6e5f4;font-weight:700}
+.topology-canvas .topology-group{font-size:11px;fill:#b3c3d4}
+.topology-canvas .topology-node-sub{fill:#9cacbc!important;font-size:11px}
+.topology-canvas .topology-node-offline rect{opacity:.64}
+.topology-bottom{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px}
+.topology-link-list{display:grid;gap:7px;max-height:360px;overflow-y:auto}
+.topology-link-button{width:100%;text-align:left;background:#172331;border:1px solid #2f4254;border-radius:8px;color:#dfe9f2;padding:10px;font:inherit;font-size:12px;cursor:pointer}
+.topology-link-button span{display:block;color:#a0acbc;font-size:10px;margin-top:4px}
+.topology-link-button:hover,.topology-link-button:focus-visible{border-color:#5aa5d7}
+.topology-detail{display:grid;gap:9px;line-height:1.6;overflow-wrap:anywhere}
+.topology-detail strong{color:#eef5fc;font-size:14px}
+.topology-detail-row{display:grid;grid-template-columns:130px minmax(0,1fr);gap:8px;border-bottom:1px solid rgba(255,255,255,.045);padding:3px 0}
+.topology-detail-row b{color:#bdcbd9;font-weight:500}
+.topology-empty{margin:16px auto;padding:32px;border:1px dashed #3a4a5c;background:#172130;border-radius:12px;max-width:700px;line-height:1.7}
+.topology-empty p,.topology-footnote{font-size:12px;color:#acbbca}
+.topology-footnote{margin-top:13px;line-height:1.7}
+@media(max-width:690px){
+ .topology-kpis{grid-template-columns:1fr;gap:7px}
+ .topology-kpi{padding:12px}.topology-kpi strong{font-size:21px;margin:5px 0}
+ .topology-bottom{grid-template-columns:1fr}
+ .topology-toolbar{align-items:flex-start}.topology-legend{gap:10px}
+ .topology-detail-row{grid-template-columns:110px minmax(0,1fr)}
+ .network-heading .sub{display:none}
+}
