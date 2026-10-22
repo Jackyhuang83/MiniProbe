@@ -47,6 +47,7 @@ type dashboardTrafficNode struct {
 	UsagePercent    float64                `json:"usage_percent"`
 	Direction       string                 `json:"direction"`
 	CycleStart      time.Time              `json:"cycle_start,omitempty"`
+	ExpireAt        string                 `json:"expire_at"`
 }
 
 type dashboardTrafficResult struct {
@@ -259,6 +260,7 @@ func (s *server) trafficDashboardAPI(w http.ResponseWriter, r *http.Request) {
 			QuotaBytes: quota, CycleUsedBytes: used, RemainingBytes: remaining,
 			UsagePercent: percent, Direction: node.config.TrafficDirection,
 			CycleStart: node.state.CycleStart,
+			ExpireAt: node.config.ExpireAt,
 		})
 		if incomplete {
 			result.Incomplete = true
