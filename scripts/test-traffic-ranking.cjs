@@ -18,7 +18,7 @@ assert.match(code, /\nboot\(\);\s*$/);
 vm.runInContext(code.replace(/\nboot\(\);\s*$/, ''), ctx, {filename:'traffic.js'});
 function call(name,arg){ctx.__arg=arg;return vm.runInContext(`${name}(__arg)`,ctx);}
 const live={quota_bytes:1000,cycle_start:'2026-10-01T00:00:00Z'};
-for(const [percent,want] of [[0,'good'],[59.9,'good'],[60,'warning'],[79.9,'warning'],[80,'orange'],[89.9,'orange'],[90,'danger'],[115,'danger']]){
+for(const [percent,want] of [[0,'good'],[59.9,'good'],[59.99,'good'],[60,'warning'],[79.9,'warning'],[80,'warning'],[89.9,'warning'],[90,'warning'],[90.01,'danger'],[90.1,'danger'],[115,'danger']]){
   const found=call('rankingUsageInfo',{...live,usage_percent:percent});
   assert.equal(found.tier,want,`incorrect risk tier: ${percent}%`);
 }
@@ -49,7 +49,8 @@ ctx.__fixture={nodes:[
 vm.runInContext('current=__fixture;renderRanking();',ctx);
 const html=elements.get('#trafficRanking').innerHTML;
 assert.match(html,/<th>流量使用情况<\/th><th>订阅到期<\/th>/);
-assert.match(html,/traffic-usage-danger/);
+assert.match(html,/traffic-usage-warning/);
+assert.doesNotMatch(html,/traffic-usage-orange/);
 assert.match(html,/2026-11-20/);
 assert.match(html,/traffic-expiry-longterm/);
 assert.match(html,/未设置额度/);
