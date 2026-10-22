@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MiniProbe · 流量统计中心</title>
-  <link rel="stylesheet" href="/ui/0.4.25-alpha/style.css">
+  <link rel="stylesheet" href="/ui/0.4.26-alpha/style.css">
 </head>
 <body>
   <section id="trafficLoading" class="login-wrap">
@@ -16,7 +16,7 @@
   <section id="trafficView" class="hidden">
     <header class="network-header">
       <div class="network-heading">
-        <a class="back-link" href="/ui/0.4.25-alpha/">‹ Dashboard</a>
+        <a class="back-link" href="/ui/0.4.26-alpha/">‹ Dashboard</a>
         <span class="brand">流量统计中心</span>
         <span class="sub">每日流量 · 节点排名 · 计费额度</span>
       </div>
@@ -60,7 +60,7 @@
         <div class="traffic-panel-head">
           <div>
             <div class="network-title">服务器流量排名</div>
-            <div class="small">按所选日期范围的已确认计费增量排序；月额度取自 Agent 实时计费周期</div>
+            <div class="small">排名按所选日期的计费增量排序；使用率按本周期实时额度：低于 60% 绿、60–79.9% 黄、80–89.9% 橙、90% 起红；到期天数按浏览器本地日期</div>
           </div>
         </div>
         <div id="trafficRanking" class="traffic-table-wrap"></div>
@@ -68,6 +68,6 @@
       <div class="traffic-note" id="trafficFootnote"></div>
     </main>
   </section>
-  <script src="/ui/0.4.25-alpha/traffic.js"></script>
+  <script src="/ui/0.4.26-alpha/traffic.js"></script>
 </body>
 </html>

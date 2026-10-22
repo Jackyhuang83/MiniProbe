@@ -102,7 +102,7 @@ func TestTrafficDashboardEndpointUsesLiveQuotaAndDoesNotMutatePolicy(t *testing.
 	s.db = database{
 		Settings: settings{DashboardMode: dashboardPublic},
 		Nodes: map[string]nodeConfig{
-			"node-a": {ID: "node-a", DisplayName: "Alpha", MonthlyTrafficLimit: 2000, TrafficDirection: "outbound"},
+			"node-a": {ID: "node-a", DisplayName: "Alpha", MonthlyTrafficLimit: 2000, TrafficDirection: "outbound", ExpireAt: "2026-12-31"},
 		},
 		States: map[string]common.NodeView{
 			"node-a": {
@@ -137,7 +137,7 @@ func TestTrafficDashboardEndpointUsesLiveQuotaAndDoesNotMutatePolicy(t *testing.
 	}
 	node := out.Nodes[0]
 	if out.Totals.UsedBytes != 60 || node.History.UsedBytes != 60 ||
-		node.QuotaBytes != 2000 || node.CycleUsedBytes != 1800 || node.RemainingBytes != 200 ||
+		node.QuotaBytes != 2000 || node.CycleUsedBytes != 1800 || node.RemainingBytes != 200 || node.ExpireAt != "2026-12-31" ||
 		len(node.Days) != 1 || node.Days[0].UsedBytes != 60 {
 		t.Fatalf("billing/history fields incorrect: %+v, %+v", out.Totals, node)
 	}
@@ -251,5 +251,38 @@ func TestTrafficDashboardTotalsSaturateWithoutWrapping(t *testing.T) {
 	addTrafficTotals(&total, dashboardTrafficTotals{InboundBytes: 100, OutboundBytes: 100, UsedBytes: 100})
 	if total.InboundBytes != math.MaxUint64 || total.OutboundBytes != math.MaxUint64 || total.UsedBytes != math.MaxUint64 {
 		t.Fatalf("traffic totals overflowed: %+v", total)
+	}
+}
+
+func TestTrafficDashboardSubscriptionDateIsReadOnlyAndPreservesLongTerm(t *testing.T) {
+	s := newTrafficHistoryTestServer(t)
+	s.db = database{
+		Settings: settings{DashboardMode: dashboardPublic},
+		Nodes: map[string]nodeConfig{
+			"normal": {ID: "normal", DisplayName: "Normal", ExpireAt: "2026-11-20"},
+			"long":   {ID: "long", DisplayName: "Long", ExpireAt: longTermExpireDate},
+			"empty":  {ID: "empty", DisplayName: "Unspecified"},
+		},
+		States: map[string]common.NodeView{},
+	}
+	w := httptest.NewRecorder()
+	s.trafficDashboardAPI(w, httptest.NewRequest(http.MethodGet, "/api/v1/traffic/dashboard?tz=540", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
+	}
+	var response dashboardTrafficResult
+	if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]dashboardTrafficNode)
+	for _, n := range response.Nodes {
+		got[n.ID] = n
+	}
+	if len(got) != 3 || got["normal"].ExpireAt != "2026-11-20" ||
+		got["long"].ExpireAt != longTermExpireDate || got["empty"].ExpireAt != "" {
+		t.Fatalf("wrong subscription dates in ranking API: %+v", got)
+	}
+	if s.db.Nodes["normal"].ExpireAt != "2026-11-20" || s.db.Nodes["long"].ExpireAt != longTermExpireDate {
+		t.Fatal("read-only traffic dashboard changed subscriptions")
 	}
 }
