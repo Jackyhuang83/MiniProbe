@@ -29,6 +29,9 @@ type topologyLinkConfig struct {
     Label string `json:"label,omitempty"`
     ProbeAddress string `json:"probe_address,omitempty"` // local socket only, never public API
     ProbePort uint16 `json:"probe_port,omitempty"`
+    TrafficSource string `json:"traffic_source,omitempty"` // xray only; otherwise not collected
+    TrafficTag string `json:"traffic_tag,omitempty"`
+    TrafficPort uint16 `json:"traffic_port,omitempty"`
 }
 type topologyConfig struct {
     Enabled bool `json:"enabled"`
@@ -67,6 +70,12 @@ type topologyLinkView struct {
     LastSuccess time.Time `json:"last_success,omitempty"`
     LastFailure time.Time `json:"last_failure,omitempty"`
     LastProbe time.Time `json:"last_probe,omitempty"`
+    TodayUplinkBytes *uint64 `json:"today_uplink_bytes"`
+    TodayDownlinkBytes *uint64 `json:"today_downlink_bytes"`
+    UplinkBps *float64 `json:"uplink_bps"`
+    DownlinkBps *float64 `json:"downlink_bps"`
+    TrafficIncomplete bool `json:"traffic_incomplete"`
+    TrafficLastSample time.Time `json:"traffic_last_sample,omitempty"`
 }
 type topologySummary struct {
     TotalLinks int `json:"total_links"`
@@ -108,6 +117,8 @@ func validateTopology(in topologyConfig, known map[string]nodeConfig) (topologyC
     }
     edgeSeen := make(map[string]bool, len(in.Links))
     tasksPerSource:=map[string]int{}
+    trafficPerSource:=map[string]int{}
+    trafficTagPerSource:=map[string]bool{}
     for _, l := range in.Links {
         if l.From == l.To { return topologyConfig{}, fmt.Errorf("链路不能指向自身 %q", l.From) }
         if !seen[l.From] || !seen[l.To] { return topologyConfig{}, fmt.Errorf("链路 %q → %q 的端点未加入拓扑", l.From, l.To) }
@@ -122,6 +133,15 @@ func validateTopology(in topologyConfig, known map[string]nodeConfig) (topologyC
             tasksPerSource[l.From]++
             if tasksPerSource[l.From]>topologyMaxTargetsPerAgent {return topologyConfig{}, fmt.Errorf("每台来源 VPS 最多配置 %d 个探测目标",topologyMaxTargetsPerAgent)}
         }
+        if l.TrafficSource!="" && l.TrafficSource!="xray" {return topologyConfig{},fmt.Errorf("暂只支持 Xray 出站标签统计")}
+        if l.TrafficSource=="xray" {
+            if !topologyTrafficMappingValid(l.TrafficTag,l.TrafficPort) {return topologyConfig{},fmt.Errorf("Xray 统计需要合法出站 tag 和已有本机统计 API 端口")}
+            trafficPerSource[l.From]++
+            if trafficPerSource[l.From]>topologyTrafficMaxTargets {return topologyConfig{},fmt.Errorf("每个来源 Agent 最多 %d 个流量统计映射",topologyTrafficMaxTargets)}
+            tagKey:=l.From+"~"+l.TrafficTag+"~"+strconv.Itoa(int(l.TrafficPort))
+            if trafficTagPerSource[tagKey] {return topologyConfig{},fmt.Errorf("同一个出站标签不能重复映射多条链路")}
+            trafficTagPerSource[tagKey]=true
+        }else if l.TrafficTag!="" || l.TrafficPort!=0 {return topologyConfig{},fmt.Errorf("未启用统计时不得配置统计标签或端口")}
         edgeSeen[key] = true
         out.Links = append(out.Links, l)
     }
@@ -154,6 +174,7 @@ func (s *server) localTopology(w http.ResponseWriter, r *http.Request) {
         s.db.Topology = next
         s.mu.Unlock()
         s.resetTopologyStats()
+        s.resetTopologyTraffic()
         // Existing MiniProbe persistence loop also writes the database every 30s.
         if err := s.save(); err != nil {
             http.Error(w, "save failed", http.StatusInternalServerError)
@@ -185,6 +206,8 @@ func (s *server) topologyAPI(w http.ResponseWriter, r *http.Request) {
         healthyCount:=0
         checkedCount:=0
         totalRTT:=0.0
+        trafficUp,trafficDown:=uint64(0),uint64(0)
+        trafficLinks:=0
         rttCount:=0
         included := make(map[string]topologyNodeView, len(cfg.Nodes))
         for _, n := range cfg.Nodes {
@@ -234,10 +257,30 @@ func (s *server) topologyAPI(w http.ResponseWriter, r *http.Request) {
                     }
                 }
             }
+            if l.TrafficSource=="xray" {
+                view.TrafficStatus="unsupported"
+                state:=s.db.States[l.From]
+                if hasCapability(state.Capabilities,topologyTrafficCapability){
+                    m:=s.topologyTrafficMeasurement(view.ID,cfg.Revision,now)
+                    view.TrafficStatus=m.Status
+                    view.TodayUplinkBytes=m.TodayUplink
+                    view.TodayDownlinkBytes=m.TodayDownlink
+                    view.UplinkBps=m.RateUplink
+                    view.DownlinkBps=m.RateDownlink
+                    view.TrafficIncomplete=m.Incomplete
+                    view.TrafficLastSample=m.LastSample
+                }
+            }
+            if view.TodayUplinkBytes!=nil && view.TodayDownlinkBytes!=nil {
+                trafficUp=saturatingTrafficSum(trafficUp,*view.TodayUplinkBytes)
+                trafficDown=saturatingTrafficSum(trafficDown,*view.TodayDownlinkBytes)
+                trafficLinks++
+            }
             out.Links=append(out.Links,view)
         }
         if checkedCount>0 {out.Summary.HealthyLinks=&healthyCount}
         if rttCount>0 {avg:=totalRTT/float64(rttCount);out.Summary.AverageRTTMS=&avg}
+        if trafficLinks>0 {total:=saturatingTrafficSum(trafficUp,trafficDown);out.Summary.TrafficTodayBytes=&total}
         sort.Slice(out.Nodes,func(i,j int)bool{
             if out.Nodes[i].Role != out.Nodes[j].Role { return topologyRoleOrder(out.Nodes[i].Role) < topologyRoleOrder(out.Nodes[j].Role) }
             if out.Nodes[i].Group != out.Nodes[j].Group { return out.Nodes[i].Group < out.Nodes[j].Group }
@@ -287,7 +330,8 @@ func manageTopology(r *bufio.Reader, client *localClient) {
         for _, n := range cfg.Nodes { fmt.Printf(" · %s [%s] %s\n", byID[n.ID], topologyRoleLabel(n.Role), n.Group) }
         for i, l := range cfg.Links { state:="未配置探测";if l.ProbeAddress!="" {state="TCP 定向探测已配置"};fmt.Printf(" %d. %s → %s  %s [%s]\n", i+1, byID[l.From], byID[l.To], l.Label,state) }
         fmt.Println("1. 启用/关闭拓扑  2. 设置节点角色/分组  3. 从拓扑移除节点")
-        fmt.Println("4. 添加有向逻辑链路  5. 删除链路  6. 设置定向 TCP 探测  0. 返回")
+        fmt.Println("4. 添加有向逻辑链路  5. 删除链路  6. 设置定向 TCP 探测")
+        fmt.Println("7. 设置真实出站流量采集（Xray · 只读）  0. 返回")
         choice := prompt(r, "请选择: ")
         save := true
         switch choice {
@@ -335,6 +379,23 @@ func manageTopology(r *bufio.Reader, client *localClient) {
             if err!=nil || n<1 || n>65535 {fmt.Println("端口无效");save=false;break}
             cfg.Links[idx-1].ProbeAddress=ip
             cfg.Links[idx-1].ProbePort=uint16(n)
+        case "7":
+            idx,err:=strconv.Atoi(prompt(r,"设置链路序号: "))
+            if err!=nil || idx<1 || idx>len(cfg.Links){fmt.Println("无效链路序号");save=false;break}
+            fmt.Println("只读取目标来源 VPS 上已经启用的 Xray StatsService；不会修改 Xray 配置。")
+            fmt.Println("相同来源 VPS 的同一个 outbound tag 只能绑定一条链路。")
+            tag:=strings.TrimSpace(prompt(r,"Xray outbound tag（留空关闭采集）: "))
+            if tag=="" {
+                cfg.Links[idx-1].TrafficSource=""
+                cfg.Links[idx-1].TrafficTag=""
+                cfg.Links[idx-1].TrafficPort=0
+                break
+            }
+            num,err:=strconv.Atoi(prompt(r,"现有 Xray 本机 StatsService 端口（1-65535）: "))
+            if err!=nil||num<1||num>65535 {fmt.Println("统计 API 端口无效");save=false;break}
+            cfg.Links[idx-1].TrafficSource="xray"
+            cfg.Links[idx-1].TrafficTag=tag
+            cfg.Links[idx-1].TrafficPort=uint16(num)
         case "0","q","Q":
             return
         default:
@@ -344,7 +405,7 @@ func manageTopology(r *bufio.Reader, client *localClient) {
         if !save { continue }
         if err := client.request(http.MethodPut, "/v1/topology", cfg, nil); err != nil {
             fmt.Println("保存失败（配置未通过校验）:",err)
-        } else { fmt.Println("已保存。新 Agent 自动接受 Server 签名的 TCP 定向探测策略；转发流量仍将在 DEV3 实现。") }
+        } else { fmt.Println("已保存。支持新 Agent 的签名定向探测与可选 Xray 出站流量只读采集；未配置时不采集。") }
     }
 }
 func pickTopologyNode(r *bufio.Reader, nodes []adminNodeView, title string) string {

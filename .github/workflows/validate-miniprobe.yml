@@ -2,7 +2,7 @@ name: Validate MiniProbe
 
 on:
   pull_request:
-    branches: [main, feature/topology-dev1-20261022]
+    branches: [main, feature/topology-dev1-20261022, feature/topology-dev2-20261022]
   workflow_dispatch:
 
 permissions:
@@ -38,6 +38,20 @@ jobs:
         run: node scripts/test-traffic-ranking.cjs
       - name: Cross-build release binaries (no publish)
         run: make release
+      - name: Attach DEV3 test binaries (not a Release)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'feature/topology-dev3-traffic-20261022'
+        uses: actions/upload-artifact@v4
+        with:
+          name: miniprobe-dev3-test-binaries
+          path: |
+            dist/miniprobe-server-linux-amd64
+            dist/miniprobe-server-linux-arm64
+            dist/miniprobe-agent-linux-amd64
+            dist/miniprobe-agent-linux-arm64
+            dist/miniprobe-agent-linux-armv7
+            dist/SHA256SUMS
+          retention-days: 7
+          if-no-files-found: error
       - name: Verify embedded Go build version
         run: |
           for binary in dist/miniprobe-{server,agent}-linux-{amd64,arm64} dist/miniprobe-agent-linux-armv7; do

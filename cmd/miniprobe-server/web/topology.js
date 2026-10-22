@@ -10,6 +10,9 @@
   const probeNames={not_configured:"未配置目标",agent_unsupported:"来源 Agent 暂不支持",pending:"等待首轮探测",measured:"已取得定向探测结果"};
   const ms=(v)=>v===null || v===undefined?"—":Number(v).toFixed(1)+" ms";
   const pct=(v)=>v===null || v===undefined?"—":Number(v).toFixed(1)+"%";
+  const trafficNames={not_collected:"未采集",unsupported:"来源 Agent 暂不支持",pending:"等待计数器数据",baseline:"首次基线建立中",collected:"已采集",stale:"数据过期"};
+  const volume=(v)=>v===null || v===undefined?"未采集":(Number(v)/1e9).toFixed(3)+" GB";
+  const speed=(v)=>v===null || v===undefined?"未采集":(Number(v)/1e6).toFixed(3)+" Mbps";
   const when=(v)=>!v || v.startsWith("0001")?"—":new Date(v).toLocaleString();
   let data = null;
   let grouped = false;
@@ -41,7 +44,31 @@
       row("网络类型",(n.network_types || []).join("、") || "未知"),
       row("最后上报",n.last_seen && !n.last_seen.startsWith("0001") ? new Date(n.last_seen).toLocaleString() : "尚未上报"));
   }
+  let selectedHistoryLink = "";
+  async function showLinkHistory(link, target) {
+    if(link.traffic_status==="not_collected" || link.traffic_status==="unsupported") return;
+    const line=element("div","读取最近 7 天历史…","small");
+    target.append(line);
+    try {
+      const res=await fetch("/api/v1/topology/traffic/history?days=7",{credentials:"same-origin",cache:"no-store"});
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      const history=await res.json();
+      if(selectedHistoryLink!==link.id) return;
+      const days=[];
+      for (const day of history.days||[]) {
+        const item=(day.links||[]).find(item=>item.id===link.id);
+        if(item) days.push(day.date+" (UTC)：上行 "+volume(item.uplink_bytes)+
+          " / 下行 "+volume(item.downlink_bytes)+(item.incomplete?" · 有缺口":""));
+      }
+      line.replaceChildren(element("strong","最近 7 天 · 链路流量历史（UTC）"));
+      if(days.length===0) line.append(element("div","暂无有效历史检查点","small"));
+      else days.forEach(row=>line.append(element("div",row,"small")));
+    }catch(e){
+      if(selectedHistoryLink===link.id)line.textContent="历史数据暂不可读取："+e.message;
+    }
+  }
   function showLink(l) {
+    selectedHistoryLink=l.id;
     const nodes = new Map(data.nodes.map((n)=>[n.id,n]));
     const start = nodes.get(l.from), end = nodes.get(l.to);
     const detail = byId("topologyDetail");
@@ -61,8 +88,12 @@
       row("最近故障",when(l.last_failure)),
       row("最近一次探测",when(l.last_probe)),
       row("代理协议健康","未测试：TCP 握手成功不等于代理业务可用"),
-      row("今日转发流量","未采集（DEV3）"),
-      row("实时流量","未采集（DEV3）"));
+      row("链路流量采集",trafficNames[l.traffic_status]||"未采集"),
+      row("今日上行 / 下行（UTC）",volume(l.today_uplink_bytes)+" / "+volume(l.today_downlink_bytes)),
+      row("实时上行 / 下行",speed(l.uplink_bps)+" / "+speed(l.downlink_bps)),
+      row("最近流量样本",when(l.traffic_last_sample)),
+      row("历史完整度",l.traffic_incomplete?"存在采集缺口，不可视为完整账单":"仍以首次基线之后的有效区间为准"));
+    showLinkHistory(l,detail);
   }
   function layout(nodes) {
     const positions = new Map();
@@ -142,7 +173,8 @@
       b.type="button";
       b.append(element("span",(l.label?l.label+" · ":"")+
         (l.probe_state==="measured"?(networkNames[l.network_status]||"已探测"):(probeNames[l.probe_state]||"尚未探测"))+
-        " · 代理协议未验证 · 转发流量未采集"));
+        " · "+(trafficNames[l.traffic_status]||"未采集")+
+        " · 代理协议未验证"));
       b.addEventListener("click",()=>showLink(l));
       list.append(b);
     }
@@ -153,7 +185,7 @@
     if(!data.enabled) return;
     const s=data.summary;
     byId("topologyHealthy").textContent=(s.healthy_links===null?"未探测":String(s.healthy_links))+" / "+s.total_links;
-    byId("topologyTraffic").textContent=s.traffic_today_bytes===null?"未采集":s.traffic_today_bytes.toLocaleString()+" B";
+    byId("topologyTraffic").textContent=volume(s.traffic_today_bytes);
     byId("topologyLatency").textContent=s.average_rtt_ms===null?"未探测":s.average_rtt_ms.toFixed(1)+" ms";
     renderCanvas();renderList();
   }
