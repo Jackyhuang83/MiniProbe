@@ -257,6 +257,9 @@ type server struct {
 	identityChecked map[string]time.Time
 	identityGate    chan struct{}
 
+	topologyMu sync.Mutex
+	topologyStats map[string]*topologyLinkStats
+
 	loginMu  sync.Mutex
 	failures map[string]loginFailures
 	notifyCh chan string
@@ -543,6 +546,9 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	// Raw traceroute hop IPs are transient input for Server-side ASN mapping.
 	// Never persist them in the main database or expose them through nodesAPI.
 	storedReport.Routes = nil
+	// Retain link measurements only in a bounded in-memory topology window;
+	// do not persist or expose raw Agent-reported link probes via nodesAPI.
+	storedReport.TopologyProbes = nil
 	// Raw outbound IPs are never written to the database or Dashboard API.
 	storedReport.EgressIPv4, storedReport.EgressIPv6 = "", ""
 	nv := common.NodeView{
@@ -587,6 +593,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	s.db.Notifications[rep.NodeID] = ns
 	policy := s.signedPolicyLocked(cfg)
 	probePolicy := s.signedProbePolicyLocked(cfg)
+	topologyPolicy := s.signedTopologyProbePolicyLocked(cfg, rep)
 	upgradePolicy := s.signedUpgradePolicyLocked(cfg, rep)
 	if req, ok := s.db.AgentUpgrades[rep.NodeID]; ok && rep.AgentVersion == req.TargetVersion {
 		delete(s.db.AgentUpgrades, rep.NodeID)
@@ -596,12 +603,13 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	s.scheduleIdentityLookup(rep.NodeID, egressIPv4, egressIPv6)
 	s.scheduleIPAttributes(rep.NodeID, egressIPv4, egressIPv6)
 	s.ingestProbeSample(rep.NodeID, rep.ProbeAt, rep.ProbeProtocol, rep.Probes)
+	s.ingestTopologyProbes(rep.NodeID, rep.TopologyProbes, rep.Capabilities)
 	s.ingestTrafficHistory(rep.NodeID, now, rep.Traffic)
 	s.enqueueRouteSnapshot(rep.NodeID, rep.RouteAt, rep.Routes)
 	for _, msg := range messages {
 		s.enqueueNotification(msg)
 	}
-	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy, UpgradePolicy: upgradePolicy})
+	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy, TopologyProbePolicy: topologyPolicy, UpgradePolicy: upgradePolicy})
 }
 
 func (s *server) signedPolicyLocked(cfg nodeConfig) *common.SignedPolicy {
