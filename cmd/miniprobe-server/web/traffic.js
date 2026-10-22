@@ -1,4 +1,4 @@
-const UI_VERSION='0.4.26-alpha';
+const UI_VERSION='0.4.27-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -18,7 +18,7 @@ function rankingUsageInfo(node){
   if(!node.cycle_start||String(node.cycle_start).startsWith('0001-'))return {tier:'none',label:'暂无计费数据',percent:null};
   const percent=Number(node.usage_percent);
   if(!Number.isFinite(percent)||percent<0)return {tier:'none',label:'暂无计费数据',percent:null};
-  const tier=percent>=90?'danger':percent>=80?'orange':percent>=60?'warning':'good';
+  const tier=percent>90?'danger':percent>=60?'warning':'good';
   return {tier,label:`${percent.toFixed(1)}%`,percent};
 }
 function renderRankingUsage(node){
