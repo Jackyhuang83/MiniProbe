@@ -44,8 +44,8 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.27-alpha"
-	agentTargetVersion   = "0.4.22-alpha"
+	serverVersion        = "0.4.28-alpha"
+	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
 	defaultAdminSock     = "/run/miniprobe/admin.sock"
