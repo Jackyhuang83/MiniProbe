@@ -302,7 +302,7 @@ func main() {
 				}
 				if response.TopologyProbePolicy != nil {
 					if err := topologyRunner.apply(c.NodeID, pubKey, response.TopologyProbePolicy); err != nil && time.Since(lastErrLog) >= time.Minute {
-						fmt.Fprintf(os.Stderr, "%s MiniProbe topology policy ignored: %v\\n", time.Now().Format(time.RFC3339), err)
+						fmt.Fprintf(os.Stderr, "%s MiniProbe topology policy ignored: %v\n", time.Now().Format(time.RFC3339), err)
 						lastErrLog = time.Now()
 					}
 				}

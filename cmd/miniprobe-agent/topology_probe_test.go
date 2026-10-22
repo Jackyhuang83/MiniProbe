@@ -21,7 +21,7 @@ func topologySignedTestPolicy(t *testing.T,p common.TopologyProbePolicy,private 
 }
 func TestTopologyRejectsUnsafeTargets(t *testing.T) {
     valid:=[]string{"203.0.113.10","2001:db8::1","10.10.0.5","fd00::1"}
-    invalid:=[]string{"localhost","127.0.0.1","::1","0.0.0.0","::","169.254.169.254","fe80::1","224.0.0.1","ff02::1",""}
+    invalid:=[]string{"localhost","127.0.0.1","::1","0.0.0.0","::","169.254.169.254","100.100.100.200","168.63.129.16","fd00:ec2::254","fe80::1","224.0.0.1","ff02::1",""}
     for _,ip:=range valid {if !validTopologyProbeIP(ip) {t.Errorf("valid target rejected: %s",ip)}}
     for _,ip:=range invalid {if validTopologyProbeIP(ip) {t.Errorf("unsafe target accepted: %s",ip)}}
 }

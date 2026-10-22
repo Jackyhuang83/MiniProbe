@@ -26,7 +26,7 @@ func TestTopologyProbeConfigValidationAndIsolation(t *testing.T) {
     s:=makeDev2Server()
     good:=s.db.Topology
     if _,err:=validateTopology(good,s.db.Nodes);err!=nil {t.Fatal(err)}
-    for _,bad:=range []string{"127.0.0.1","169.254.169.254","localhost","fe80::1",""} {
+    for _,bad:=range []string{"127.0.0.1","169.254.169.254","100.100.100.200","168.63.129.16","fd00:ec2::254","localhost","fe80::1",""} {
         c:=good;c.Links=append([]topologyLinkConfig(nil),good.Links...)
         c.Links[0].ProbeAddress=bad
         if _,err:=validateTopology(c,s.db.Nodes);err==nil {t.Errorf("unsafe probe config accepted: %s",bad)}

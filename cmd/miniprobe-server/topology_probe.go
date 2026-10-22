@@ -61,7 +61,12 @@ func (s *server) signedTopologyProbePolicyLocked(cfg nodeConfig, rep common.Repo
 // if persisted configuration is hand-edited. Only literal IPs; no DNS.
 func validTopologyProbeIP(raw string) bool {
     ip:=net.ParseIP(raw)
-    return ip!=nil && ip.IsGlobalUnicast() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast()
+    if ip==nil || !ip.IsGlobalUnicast() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {return false}
+    // Cloud VM metadata/platform endpoints must not become TCP targets.
+    for _,blocked:=range []string{"100.100.100.200","168.63.129.16","fd00:ec2::254"} {
+        if ip.Equal(net.ParseIP(blocked)) {return false}
+    }
+    return true
 }
 func topologyEdgeID(from,to string) string {return from+"~"+to}
 
