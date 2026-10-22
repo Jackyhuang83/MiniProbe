@@ -5,6 +5,7 @@
   const ns = "http://www.w3.org/2000/svg";
   const roleOrder = ["entry", "relay", "exit"];
   const roleNames = {entry:"入口", relay:"中转", exit:"出口"};
+  const linkPalette = ["#58a1d2","#c48af6","#ebaf72","#50c5b0","#cf88a3","#a1bb69"];
   let data = null;
   let grouped = false;
 
@@ -81,13 +82,14 @@
     roleOrder.forEach((role,i)=>headings.append(svgElement("text",{x:34+i*332,y:45,class:"topology-role"},roleNames[role]+"节点")));
     svg.append(headings);
     const paths=svgElement("g");
-    for (const l of data.links) {
+    for (const [index,l] of data.links.entries()) {
       const a=positions.get(l.from),b=positions.get(l.to);
       if(!a || !b)continue;
       const x1=a.x+235,y1=a.y+27,x2=b.x,y2=b.y+27;
       const bend=Math.max(65,Math.abs(x2-x1)*.42);
       const curve="M "+x1+" "+y1+" C "+(x1+bend)+" "+y1+" "+(x2-bend)+" "+y2+" "+x2+" "+y2;
-      paths.append(svgElement("path",{d:curve,class:"topology-edge"+(l.endpoint_status==="endpoint_offline"?" endpoint-offline":"")}));
+      const color = l.endpoint_status==="endpoint_offline" ? "#677789" : linkPalette[index%linkPalette.length];
+      paths.append(svgElement("path",{d:curve,class:"topology-edge"+(l.endpoint_status==="endpoint_offline"?" endpoint-offline":""),style:"stroke:"+color}));
       const hit=svgElement("path",{d:curve,class:"topology-edge-hit",tabindex:"0",role:"button","aria-label":"查看逻辑链路 "+l.from+" 到 "+l.to});
       hit.addEventListener("click",()=>showLink(l));
       hit.addEventListener("keydown",(ev)=>{if(ev.key==="Enter" || ev.key===" "){ev.preventDefault();showLink(l);}});
