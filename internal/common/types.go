@@ -134,6 +134,7 @@ type Report struct {
 	Traffic       TrafficSnapshot `json:"traffic"`
 	Probes        []ProbeResult   `json:"probes"`
 	TopologyProbes []TopologyProbeResult `json:"topology_probes,omitempty"`
+	TopologyTraffic []TopologyTrafficResult `json:"topology_traffic,omitempty"`
 	At            time.Time       `json:"at"`
 }
 
@@ -181,6 +182,35 @@ type TopologyProbePolicy struct {
     IntervalSeconds int `json:"interval_seconds"`
     Targets []TopologyProbeTarget `json:"targets"`
 }
+
+// TopologyTrafficPolicy is a strictly scoped, signed opt-in for reading an
+// existing loopback Xray StatsService. No proxy credentials or commands are
+// sent in this protocol. Only explicitly mapped outbound tags are counted.
+type TopologyTrafficTarget struct {
+    LinkID string `json:"link_id"`
+    Tag string `json:"tag"`
+    Port uint16 `json:"port"`
+}
+type TopologyTrafficPolicy struct {
+    Version int64 `json:"version"`
+    NodeID string `json:"node_id"`
+    Enabled bool `json:"enabled"`
+    IntervalSeconds int `json:"interval_seconds"`
+    Targets []TopologyTrafficTarget `json:"targets"`
+}
+type SignedTopologyTrafficPolicy struct {
+    Policy TopologyTrafficPolicy `json:"policy"`
+    Signature string `json:"signature"`
+}
+type TopologyTrafficResult struct {
+    LinkID string `json:"link_id"`
+    Revision int64 `json:"revision"`
+    At time.Time `json:"at"`
+    Source string `json:"source"` // xray-outbound-tag
+    UplinkBytes uint64 `json:"uplink_bytes"`
+    DownlinkBytes uint64 `json:"downlink_bytes"`
+}
+
 type SignedTopologyProbePolicy struct {
     Policy TopologyProbePolicy `json:"policy"`
     Signature string `json:"signature"`
@@ -232,6 +262,7 @@ type ReportResponse struct {
 	Policy        *SignedPolicy        `json:"policy,omitempty"`
 	ProbePolicy   *SignedProbePolicy   `json:"probe_policy,omitempty"`
 	TopologyProbePolicy *SignedTopologyProbePolicy `json:"topology_probe_policy,omitempty"`
+	TopologyTrafficPolicy *SignedTopologyTrafficPolicy `json:"topology_traffic_policy,omitempty"`
 	UpgradePolicy *SignedUpgradePolicy `json:"upgrade_policy,omitempty"`
 }
 

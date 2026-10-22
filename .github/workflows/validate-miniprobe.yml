@@ -2,7 +2,7 @@ name: Validate MiniProbe
 
 on:
   pull_request:
-    branches: [main, feature/topology-dev1-20261022]
+    branches: [main, feature/topology-dev1-20261022, feature/topology-dev2-20261022]
   workflow_dispatch:
 
 permissions:

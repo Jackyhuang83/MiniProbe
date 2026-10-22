@@ -44,8 +44,8 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.29-alpha"
-	agentTargetVersion   = "0.4.29-alpha"
+	serverVersion        = "0.4.30-alpha"
+	agentTargetVersion   = "0.4.30-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
 	defaultAdminSock     = "/run/miniprobe/admin.sock"
@@ -259,6 +259,9 @@ type server struct {
 
 	topologyMu sync.Mutex
 	topologyStats map[string]*topologyLinkStats
+	topologyTrafficMu sync.RWMutex
+	topologyTraffic map[string]*topologyTrafficState
+	topologyTrafficHistoryDir string
 
 	loginMu  sync.Mutex
 	failures map[string]loginFailures
@@ -324,6 +327,8 @@ func main() {
 	s.agentAssets = loadAgentAssets(s.downloadsDir)
 	s.initNetworkHistory()
 	s.initTrafficHistory()
+	s.topologyTrafficHistoryDir=filepath.Join(*dataDir,"topology-traffic")
+	if err:=s.restoreTopologyTrafficHistory(time.Now());err!=nil {log.Printf("topology traffic history: %v",err)}
 	if created {
 		log.Printf("MiniProbe initialized. Dashboard mode: %s", s.db.Settings.DashboardMode)
 		if generatedDashboardPass != "" {
@@ -343,6 +348,7 @@ func main() {
 	go s.trafficSummaryLoop()
 	go s.networkHistoryLoop()
 	go s.trafficHistoryLoop()
+	go s.topologyTrafficHistoryLoop()
 	go s.routeWorker()
 	go s.ipAttributeWorker()
 
@@ -356,6 +362,7 @@ func main() {
 	publicMux.HandleFunc("/api/v1/network/history", s.dashboardOnly(s.networkHistoryAPI))
 	publicMux.HandleFunc("/api/v1/traffic/dashboard", s.dashboardOnly(s.trafficDashboardAPI))
 	publicMux.HandleFunc("/api/v1/topology", s.dashboardOnly(s.topologyAPI))
+	publicMux.HandleFunc("/api/v1/topology/traffic/history", s.dashboardOnly(s.topologyTrafficHistoryAPI))
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
@@ -549,6 +556,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	// Retain link measurements only in a bounded in-memory topology window;
 	// do not persist or expose raw Agent-reported link probes via nodesAPI.
 	storedReport.TopologyProbes = nil
+	storedReport.TopologyTraffic = nil
 	// Raw outbound IPs are never written to the database or Dashboard API.
 	storedReport.EgressIPv4, storedReport.EgressIPv6 = "", ""
 	nv := common.NodeView{
@@ -594,6 +602,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	policy := s.signedPolicyLocked(cfg)
 	probePolicy := s.signedProbePolicyLocked(cfg)
 	topologyPolicy := s.signedTopologyProbePolicyLocked(cfg, rep)
+	trafficPolicy := s.signedTopologyTrafficPolicyLocked(cfg,rep)
 	upgradePolicy := s.signedUpgradePolicyLocked(cfg, rep)
 	if req, ok := s.db.AgentUpgrades[rep.NodeID]; ok && rep.AgentVersion == req.TargetVersion {
 		delete(s.db.AgentUpgrades, rep.NodeID)
@@ -604,12 +613,13 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 	s.scheduleIPAttributes(rep.NodeID, egressIPv4, egressIPv6)
 	s.ingestProbeSample(rep.NodeID, rep.ProbeAt, rep.ProbeProtocol, rep.Probes)
 	s.ingestTopologyProbes(rep.NodeID, rep.TopologyProbes, rep.Capabilities)
+	s.ingestTopologyTraffic(rep.NodeID,rep.TopologyTraffic,rep.Capabilities)
 	s.ingestTrafficHistory(rep.NodeID, now, rep.Traffic)
 	s.enqueueRouteSnapshot(rep.NodeID, rep.RouteAt, rep.Routes)
 	for _, msg := range messages {
 		s.enqueueNotification(msg)
 	}
-	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy, TopologyProbePolicy: topologyPolicy, UpgradePolicy: upgradePolicy})
+	writeJSON(w, http.StatusOK, common.ReportResponse{OK: true, Policy: policy, ProbePolicy: probePolicy, TopologyProbePolicy: topologyPolicy, TopologyTrafficPolicy: trafficPolicy, UpgradePolicy: upgradePolicy})
 }
 
 func (s *server) signedPolicyLocked(cfg nodeConfig) *common.SignedPolicy {
