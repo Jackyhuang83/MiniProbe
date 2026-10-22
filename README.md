@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前发布目标：`v0.4.27-alpha`（Server-only）；上一个已发布版本：`v0.4.26-alpha`
+当前发布目标：`v0.4.28-alpha`（Go 安全更新，Server + Agent）；上一个已发布版本：`v0.4.27-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -800,4 +800,12 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 「流量统计中心」→「服务器流量排名」的百分比进度条仅保留 **三档颜色**：**低于 60% 绿色；60%～90%（包括 90%）黄色；超过 90% 红色**。原有橙色档已经移除。
 - 回归测试特别覆盖 60%、90%、90.01% 等边界；订阅日期和剩余天数展示不变。
 - **Server v0.4.27-alpha，Agent 目标版本依旧 v0.4.22-alpha**。此调整不改变计费、保护关机、Telegram、历史归档或其他探针功能。
+
+## v0.4.28-alpha：Go 工具链安全升级（Server + Agent）
+
+- **Go 1.23 → Go 1.26.10**。此版本包含 `crypto/x509` 证书链相关安全修复（CVE-2026-111943），要求重新编译的二进制才能受益。
+- **Server / Agent 都重新编译**：Server 与 Agent 新版本均为 `0.4.28-alpha`，但**不会自动批量升级 Agent**。管理员需先升级 Server，再通过 SSH 上的 Agent 管理菜单分批确认升级。
+- GitHub Actions 固定 Go 1.26.10，自动核查编译产物中嵌入的 Go 版本；发布架构不变（Server amd64/arm64，Agent amd64/arm64/armv7）。
+- 安装好的 VPS 不需要额外安装 Go，也不需要 Node.js 或 PHP。本次没有修改流量统计、保护关机、订阅到期、Telegram 或其它业务逻辑。
+- CI Action 同步升级至新版 GitHub 托管 Node 运行时；详细验证范围见 `CHANGELOG-v0.4.28-alpha.md`。
 
