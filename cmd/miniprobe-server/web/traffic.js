@@ -11,6 +11,46 @@ const fmtTraffic=v=>{
   return `${n.toFixed(i?2:0)} ${units[i]}`;
 };
 const directionText={inbound:'入站',outbound:'出站',total:'双向合计'};
+// Live cycle usage is a different metric from the historical ranking window.
+function rankingUsageInfo(node){
+  const quota=Number(node.quota_bytes);
+  if(!(quota>0))return {tier:'none',label:'未设置额度',percent:null};
+  if(!node.cycle_start||String(node.cycle_start).startsWith('0001-'))return {tier:'none',label:'暂无计费数据',percent:null};
+  const percent=Number(node.usage_percent);
+  if(!Number.isFinite(percent)||percent<0)return {tier:'none',label:'暂无计费数据',percent:null};
+  const tier=percent>=90?'danger':percent>=80?'orange':percent>=60?'warning':'good';
+  return {tier,label:`${percent.toFixed(1)}%`,percent};
+}
+function renderRankingUsage(node){
+  const x=rankingUsageInfo(node);
+  if(x.percent===null)return `<span class="traffic-usage-empty">${esc(x.label)}</span>`;
+  const value=Math.min(100,x.percent);
+  return `<div class="traffic-usage traffic-usage-${x.tier}">
+    <strong class="traffic-usage-label">${esc(x.label)}</strong>
+    <div class="traffic-usage-track" role="progressbar" aria-label="${esc('流量使用率 '+x.label)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${value.toFixed(1)}" aria-valuetext="${esc(x.label)}"><span style="width:${value.toFixed(1)}%"></span></div>
+  </div>`;
+}
+// Calendar-day distance prevents off-by-one errors from UTC parsing and DST.
+function rankingExpiryInfo(raw,today=new Date()){
+  const value=String(raw??'').trim();
+  if(!value)return {date:'—',note:'未设置到期日',state:'missing'};
+  if(value==='2036-01-01'||['l','long','longterm','long-term','长期'].includes(value.toLowerCase()))return {date:'长期',note:'无需倒计时',state:'longterm'};
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(value))return {date:'—',note:'到期日无效',state:'missing'};
+  const [year,month,day]=value.split('-').map(Number);
+  const target=Date.UTC(year,month-1,day);
+  const verify=new Date(target);
+  if(verify.getUTCFullYear()!==year||verify.getUTCMonth()!==month-1||verify.getUTCDate()!==day)return {date:'—',note:'到期日无效',state:'missing'};
+  const todayUTC=Date.UTC(today.getFullYear(),today.getMonth(),today.getDate());
+  const days=Math.round((target-todayUTC)/86400000);
+  if(days<0)return {date:value,note:`已到期 ${-days} 天`,state:'expired'};
+  if(days===0)return {date:value,note:'今天到期',state:'urgent'};
+  return {date:value,note:`剩余 ${days} 天`,state:days<=7?'urgent':'normal'};
+}
+function renderRankingExpiry(raw){
+  const x=rankingExpiryInfo(raw);
+  return `<span class="traffic-expiry traffic-expiry-${x.state}"><strong>${esc(x.date)}</strong><span>${esc(x.note)}</span></span>`;
+}
+
 let current=null,selectedDay='';
 let viewerTz=-new Date().getTimezoneOffset();
 
@@ -86,7 +126,7 @@ function renderRanking(){
   const rows=current.nodes||[];
   const selected=$('#trafficNodeSelect').value;
   const table=`<table class="traffic-table">
-    <thead><tr><th>排名 / 服务器</th><th>区间计费</th><th>区间入站</th><th>区间出站</th><th>本周期已用 / 额度</th><th>剩余额度</th></tr></thead>
+    <thead><tr><th>排名 / 服务器</th><th>区间计费</th><th>区间入站</th><th>区间出站</th><th>本周期已用 / 额度</th><th>剩余额度</th><th>流量使用情况</th><th>订阅到期</th></tr></thead>
     <tbody>${rows.map((node,index)=>{
       const hist=node.history||{},quota=node.quota_bytes||0;
       return `<tr class="${selected===node.id?'traffic-selected-row':''}">
@@ -94,6 +134,7 @@ function renderRanking(){
         <td>${fmtTraffic(hist.used_bytes)}</td><td>${fmtTraffic(hist.inbound_bytes)}</td><td>${fmtTraffic(hist.outbound_bytes)}</td>
         <td>${quota?`${fmtTraffic(node.cycle_used_bytes)} / ${fmtTraffic(quota)}`:'未设置额度'}</td>
         <td>${quota?fmtTraffic(node.remaining_bytes):'—'}</td>
+        <td>${renderRankingUsage(node)}</td><td>${renderRankingExpiry(node.expire_at)}</td>
       </tr>`;
     }).join('')}</tbody></table>`;
   $('#trafficRanking').innerHTML=rows.length?table:'<div class="traffic-empty">尚未添加服务器</div>';
