@@ -248,6 +248,7 @@ func TestLegacyDashboardLinksSurviveVersionUpgrade(t *testing.T) {
 		{"/ui/0.4.17-alpha/app.js", "/ui/" + serverVersion + "/app.js"},
 		{"/ui/0.4.17-alpha/network.js", "/ui/" + serverVersion + "/network.js"},
 		{"/ui/0.4.24-alpha/traffic.html", "/ui/" + serverVersion + "/traffic.html"},
+		{"/ui/0.4.28-alpha/subscriptions.html", "/ui/" + serverVersion + "/subscriptions.html"},
 		{"/ui/0.4.16/style.css", "/ui/" + serverVersion + "/style.css"},
 		{"/ui/0.4.16/debian.svg", "/ui/" + serverVersion + "/debian.svg"},
 	}
@@ -321,7 +322,7 @@ func TestTrafficDashboardUnversionedURLAndCachePolicy(t *testing.T) {
 }
 
 func TestEmbeddedDashboardUsesServerVersion(t *testing.T) {
-	for _, name := range []string{"web/index.html", "web/network.html", "web/app.js", "web/network.js", "web/traffic.html", "web/traffic.js"} {
+	for _, name := range []string{"web/index.html", "web/network.html", "web/app.js", "web/network.js", "web/traffic.html", "web/traffic.js", "web/subscriptions.html"} {
 		b, err := assets.ReadFile(name)
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)

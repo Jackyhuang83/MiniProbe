@@ -44,7 +44,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.28-alpha"
+	serverVersion        = "0.4.29-alpha"
 	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -867,6 +867,9 @@ func legacyDashboardTarget(path string) (string, bool) {
 	target := "/ui/" + serverVersion
 	if !hasSlash || relative == "" || relative == "index.html" {
 		return target + "/", true
+	}
+	if relative == "subscriptions.html" {
+		return target + "/subscriptions.html", true
 	}
 	if relative == "traffic.html" {
 		return target + "/traffic.html", true
