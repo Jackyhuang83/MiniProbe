@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -24,6 +25,18 @@ func TestDockerUpdateMenuDoesNotAccessNetworkOrChangeHost(t *testing.T) {
 	reader := bufio.NewReader(strings.NewReader("YES\n"))
 	if manageServerUpdate(reader, "/does-not-exist/miniprobe.sock") {
 		t.Fatal("Docker mode attempted to upgrade the host")
+	}
+}
+
+func TestDockerMenu13RequestsOnlyHostSideUpdate(t *testing.T) {
+	t.Setenv("MINIPROBE_DEPLOYMENT", "docker")
+	reader := bufio.NewReader(strings.NewReader("YES\n"))
+	finished, err := dispatchServerUpdateMenu(reader, "/socket-does-not-exist")
+	if finished || !errors.Is(err, errDockerUpgradeRequested) {
+		t.Fatalf("unexpected Docker menu action: finished=%v, err=%v", finished, err)
+	}
+	if dockerUpgradeRequestExitCode != 73 {
+		t.Fatalf("unexpected handoff code: %d", dockerUpgradeRequestExitCode)
 	}
 }
 

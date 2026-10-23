@@ -9,7 +9,7 @@
 - 宿主机只监听 127.0.0.1:28888；没有公网管理端口，也不支持 WebShell 或网页写入。
 - 可选 cloudflared 是另一个独立容器，但它共享 MiniProbe Server 的网络命名空间，以继续使用原有 Cloudflare 入口 http://127.0.0.1:28888。保留只信任 loopback 的 X-Forwarded-Proto 安全判断，不能改成 Docker 桥接来源直接被信任。
 - 512MiB、0.75 CPU 是 Server 初始限制；cloudflared 再用 128MiB、0.25 CPU。日志单独限额。是否足以共存必须以 HomeSphere 高峰期实测为准。
-- 原管理入口在宿主机 SSH 执行 sh manage.sh menu。容器模式屏蔽菜单 8 对 systemd/Tunnel 的控制，以及菜单 13 替换系统二进制；镜像更新通过 sh manage.sh upgrade 并验证健康后提交，失败回滚旧镜像。
+- 原管理入口在宿主机 SSH 执行 sh manage.sh menu。容器模式屏蔽菜单 8 对 systemd/Tunnel 的控制。菜单 13 使用固定退出码通知宿主机管理脚本检查 GHCR 新镜像，宿主机负责交互确认、摘要固定、健康检查与故障回滚；不在容器内替换二进制。也可以直接 sh manage.sh update；指定镜像仍使用 sh manage.sh upgrade。
 - 所有容器只在本机操作，无宿主机特权容器。
 - 镜像包含三种架构 Agent 下载文件，维持原有远端 Agent 下载安装和升级功能。
 
@@ -52,7 +52,8 @@ GHCR 仅在人工触发发布后提供开发标签 ghcr.io/jackyhuang83/miniprob
 
 - sh manage.sh start：检查旧数据存在并启动 Server。
 - sh manage.sh status：查看容器。
-- sh manage.sh menu：进入原 SSH 菜单。
+- sh manage.sh menu：进入原 SSH 菜单；选择 13 时由宿主机接管镜像检查与安全升级（需要交互式 SSH）。
+- sh manage.sh update：直接检查最新已发布 Docker 镜像，相同镜像不重启，有更新时询问 YES。
 - sh manage.sh logs：查看最近 100 行日志。
 - sh manage.sh stop：停止 Server。
 - sh manage.sh tunnel-start / tunnel-stop：管理 MiniProbe 专用 Tunnel，不动 HomeSphere。

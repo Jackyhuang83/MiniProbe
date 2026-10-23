@@ -37,6 +37,15 @@ printf '0\n' | docker compose -f "$base/compose.yaml" exec -T server \
   /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock \
   > /tmp/miniprobe-docker-smoke-manager.txt
 grep -q 'MiniProbe' /tmp/miniprobe-docker-smoke-manager.txt
+# Container menu 13 must request a fixed host handoff; it cannot upgrade Docker itself.
+set +e
+printf '13\n' | docker compose -f "$base/compose.yaml" exec -T server \
+  /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock \
+  > /tmp/miniprobe-docker-smoke-menu13.txt
+menu13_status=$?
+set -e
+[ "$menu13_status" -eq 73 ] || { echo "Docker menu 13 must return handoff status 73" >&2; exit 1; }
+grep -q 'Docker Server 更新由宿主机管理脚本执行' /tmp/miniprobe-docker-smoke-menu13.txt
 docker compose -f "$base/compose.yaml" stop server
 sudo test -s "$base/data/miniprobe.json"
 echo 'MiniProbe Docker container smoke test passed'
