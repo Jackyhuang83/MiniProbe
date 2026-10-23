@@ -206,8 +206,7 @@ func reminderDaysText(days []int)string{
 }
 func manageSubscriptionRenewals(r *bufio.Reader,c *localClient){
  overview,err:=getSubscriptionOverview(c);if err!=nil{fmt.Println("读取失败:",err);return}
- fmt.Println("
-========== 续费历史 ==========")
+ fmt.Println("\n========== 续费历史 ==========")
  if len(overview.Renewals)==0{fmt.Println("尚无续费记录。")}else{
   max:=len(overview.Renewals);if max>15{max=15}
   for _,event:=range overview.Renewals[:max]{
@@ -217,8 +216,7 @@ func manageSubscriptionRenewals(r *bufio.Reader,c *localClient){
    if event.NewDueDate!=""{fmt.Printf(" · 新到期日 %s",event.NewDueDate)}
    fmt.Println()
   }
-  if len(overview.Renewals)>max{fmt.Printf("显示最近 %d/%d 条（完整历史保存在私有账本）。
-",max,len(overview.Renewals))}
+  if len(overview.Renewals)>max{fmt.Printf("显示最近 %d/%d 条（完整历史保存在私有账本）。\n",max,len(overview.Renewals))}
  }
  if strings.ToUpper(prompt(r,"输入 ADD 新增一条续费记录（回车返回）: "))!="ADD"{return}
  item,ok:=pickSubscription(r,overview.Items);if !ok{return}
@@ -235,8 +233,7 @@ func manageSubscriptionRenewals(r *bufio.Reader,c *localClient){
  if err!=nil{fmt.Println("金额无效:",err);return}
  due:=""
  if item.Source=="manual"&&item.Cycle!="long_term"{
-  fmt.Printf("当前到期日：%s
-",item.DueDate)
+  fmt.Printf("当前到期日：%s\n",item.DueDate)
   due=prompt(r,"续费后新到期日 YYYY-MM-DD（留空不修改）: ")
   if due!=""&&!validSubscriptionDate(due){fmt.Println("新到期日无效");return}
  }else if item.Source=="vps"{fmt.Println("VPS 的到期日需到「修改节点」调整，续费历史不会修改原节点。")}
@@ -248,11 +245,7 @@ func manageSubscriptionRenewals(r *bufio.Reader,c *localClient){
 func manageSubscriptionReminders(r *bufio.Reader,c *localClient){
  overview,err:=getSubscriptionOverview(c);if err!=nil{fmt.Println("读取失败:",err);return}
  cfg:=overview.Reminders
- fmt.Printf("
-========== Telegram 订阅提醒 ==========
-当前：%s
-提醒阶段：%s
-",map[bool]string{true:"启用",false:"关闭"}[cfg.Enabled],reminderDaysText(cfg.Days))
+ fmt.Printf("\n========== Telegram 订阅提醒 ==========\n当前：%s\n提醒阶段：%s\n",map[bool]string{true:"启用",false:"关闭"}[cfg.Enabled],reminderDaysText(cfg.Days))
  fmt.Println("提醒复用现有 Telegram 设置，但订阅提醒默认关闭，不会自动扣款。")
  fmt.Println("1. 启用提醒")
  fmt.Println("2. 关闭提醒")
@@ -275,10 +268,7 @@ func manageSubscriptionReminders(r *bufio.Reader,c *localClient){
 func manageSubscriptionOverride(r *bufio.Reader,c *localClient){
  overview,err:=getSubscriptionOverview(c);if err!=nil{fmt.Println("读取失败:",err);return}
  item,ok:=pickSubscription(r,overview.Items);if !ok{return}
- fmt.Printf("
-订阅：%s
-全局阶段：%s
-",item.Name,reminderDaysText(overview.Reminders.Days))
+ fmt.Printf("\n订阅：%s\n全局阶段：%s\n",item.Name,reminderDaysText(overview.Reminders.Days))
  fmt.Println("1. 继承全局提醒")
  fmt.Println("2. 关闭本条订阅的提醒")
  fmt.Println("3. 使用单独的提醒阶段")
