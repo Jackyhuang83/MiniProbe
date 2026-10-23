@@ -208,22 +208,15 @@ func selectSubscriptionReminderStage(remaining int,days []int)(int,bool){
  return stage,true
 }
 func subscriptionReceiptKey(id,due string,stage int)string{
- hash:=sha256.Sum256([]byte(id+" "+due+" "+fmt.Sprint(stage)))
+ hash:=sha256.Sum256([]byte(id+"\x00"+due+"\x00"+fmt.Sprint(stage)))
  return hex.EncodeToString(hash[:])
 }
 func subscriptionReminderMessage(item subscriptionView,remaining int)string{
- name:=strings.NewReplacer("
-"," ",""," ","	"," ").Replace(item.Name)
+ name:=strings.NewReplacer("\n"," ","\r"," ","\t"," ").Replace(item.Name)
  status:=fmt.Sprintf("剩余 %d 天",remaining)
  if remaining==0{status="今天到期"}
  if remaining<0{status=fmt.Sprintf("逾期 %d 天",-remaining)}
- return fmt.Sprintf("📅 MiniProbe 订阅续费提醒
-
-服务：%s
-到期日：%s
-状态：%s
-
-请自行核对续费情况，本通知不会自动付款。",name,item.DueDate,status)
+ return fmt.Sprintf("📅 MiniProbe 订阅续费提醒\n\n服务：%s\n到期日：%s\n状态：%s\n\n请自行核对续费情况，本通知不会自动付款。",name,item.DueDate,status)
 }
 func retryDelay(attempts int)time.Duration{
  if attempts<1{return 0}
