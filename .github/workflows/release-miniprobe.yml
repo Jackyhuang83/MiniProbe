@@ -98,6 +98,7 @@ jobs:
           node scripts/test-release-version.cjs
           node scripts/test-subscription-cards.cjs
           node scripts/test-traffic-ranking.cjs
+          node scripts/test-dashboard-header.cjs
 
       - name: Build release binaries
         if: steps.existing.outputs.publish == 'true'

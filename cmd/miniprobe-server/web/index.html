@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MiniProbe</title>
-  <link rel="stylesheet" href="/ui/0.4.30-alpha/style.css">
+  <link rel="stylesheet" href="/ui/0.4.31-alpha/style.css">
 </head>
 <body>
   <section id="loginView" class="login-wrap hidden">
@@ -21,13 +21,18 @@
   </section>
 
   <section id="appView" class="hidden">
-    <header>
-      <div><span class="brand">MiniProbe</span><span class="sub">轻量 VPS 探针</span></div>
-      <div class="header-actions">
-        <a class="btn" href="/ui/0.4.30-alpha/traffic.html">流量统计</a>
-        <a class="btn" href="/ui/0.4.30-alpha/subscriptions.html">订阅中心</a>
-        <span id="summary" class="small"></span>
-        <button id="logoutBtn" class="btn hidden" type="button">退出</button>
+    <header class="dashboard-header">
+      <div class="dashboard-header-main">
+        <span class="brand">MiniProbe</span>
+        <nav class="header-actions" aria-label="主要导航">
+          <a class="btn" href="/ui/0.4.31-alpha/traffic.html">流量统计</a>
+          <a class="btn" href="/ui/0.4.31-alpha/subscriptions.html">订阅中心</a>
+          <button id="logoutBtn" class="btn hidden" type="button">退出</button>
+        </nav>
+      </div>
+      <div class="dashboard-header-summary">
+        <span class="sub">轻量 VPS 探针</span>
+        <div id="summary" class="header-stats" aria-label="节点和地区统计"></div>
       </div>
     </header>
     <main>
@@ -45,6 +50,6 @@
     </div>
   </section>
 
-  <script src="/ui/0.4.30-alpha/app.js"></script>
+  <script src="/ui/0.4.31-alpha/app.js"></script>
 </body>
 </html>

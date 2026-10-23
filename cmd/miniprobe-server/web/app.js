@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.30-alpha';
+const UI_VERSION='0.4.31-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -23,6 +23,27 @@ function regionCode(n){
   return '';
 }
 function regionFlag(n){const c=regionCode(n);return c?REGION_FLAGS[c]:'🌐'}
+
+function headerCounts(nodes){
+  const counts={total:nodes.length,online:0,HK:0,JP:0,TW:0,US:0,other:0};
+  for(const n of nodes){
+    if(n.online) counts.online++;
+    const code=regionCode(n);
+    if(code==='HK'||code==='JP'||code==='TW'||code==='US') counts[code]++;
+    else counts.other++;
+  }
+  return counts;
+}
+function headerSummaryMarkup(nodes){
+  const s=headerCounts(nodes);
+  return `<span class="header-stat">节点 <strong>${s.total}</strong></span>
+    <span class="header-stat online">在线 <strong>${s.online}</strong></span>
+    <span class="header-stat">HK <strong>${s.HK}台</strong></span>
+    <span class="header-stat">JP <strong>${s.JP}台</strong></span>
+    <span class="header-stat">TW <strong>${s.TW}台</strong></span>
+    <span class="header-stat">US <strong>${s.US}台</strong></span>
+    <span class="header-stat">其它 <strong>${s.other}台</strong></span>`;
+}
 
 function shortVersion(raw,name){
   const m=String(raw||'').match(new RegExp(`${name}(?: GNU/Linux| Linux)?\\s*([0-9.]+)?`,'i'));
@@ -287,7 +308,7 @@ function card(n){
 async function refresh(){
   try{
     const a=await api('/api/v1/nodes');
-    $('#summary').textContent=`节点 ${a.length} · 在线 ${a.filter(x=>x.online).length}`;
+    $('#summary').innerHTML=headerSummaryMarkup(a);
     const over=a.length>15; $('#nodeWarning').classList.toggle('hidden',!over); if(over) $('#nodeWarning').textContent=`⚠ MiniProbe 为个人小规模监控设计，建议不超过 15 个节点。当前：${a.length} 个。`;
     $('#grid').innerHTML=a.length?a.map(card).join(''):'<div class="empty">还没有节点。请 SSH 登录服务器执行 miniprobe 添加节点。</div>';
   }catch(e){
