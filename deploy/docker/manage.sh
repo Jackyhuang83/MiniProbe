@@ -6,6 +6,8 @@ cd "$BASE"
 COMPOSE="$BASE/compose.yaml"
 compose() { docker compose -f "$COMPOSE" "$@"; }
 tunnel_compose() { docker compose -f "$COMPOSE" -f "$BASE/compose.tunnel.yaml" --profile tunnel "$@"; }
+tunnel_is_running() { [ -n "$(tunnel_compose ps -q cloudflared 2>/dev/null)" ]; }
+refresh_tunnel() { tunnel_compose up -d --no-deps --force-recreate cloudflared; }
 die() { printf '%s\n' "[错误] $*" >&2; exit 1; }
 require_docker() {
   command -v docker >/dev/null 2>&1 || die "没有安装 Docker"
@@ -20,7 +22,7 @@ check_data() {
   [ "$owner" = 10001 ] || die "data/ 所有者 UID 必须为 10001（当前 $owner）；迁移后在宿主机以 root 执行 chown -R 10001:10001 data"
 }
 run_upgrade() {
-  [ "$#" -eq 1 ] || die "用法：./manage.sh upgrade ghcr.io/jackyhuang83/miniprobe-server:sha-<commit>"
+  [ "$#" -eq 1 ] || die "用法：sh manage.sh upgrade ghcr.io/jackyhuang83/miniprobe-server:sha-<commit>"
   target=$1
   case "$target" in
     ghcr.io/jackyhuang83/miniprobe-server:sha-*) ;;
@@ -33,6 +35,8 @@ run_upgrade() {
   [ -n "$old" ] || die ".env 缺少 MINIPROBE_IMAGE"
   [ "$target" != "$old" ] || die "目标与当前镜像相同"
   check_data
+  had_tunnel=0
+  if tunnel_is_running; then had_tunnel=1; fi
   printf '%s\n' "正在预拉取指定镜像（现有 Server 不停止）..."
   docker pull "$target" || die "镜像拉取失败，原 Server 未改变"
   previous=$(mktemp "$BASE/.env.prev.XXXXXXXX")
@@ -44,14 +48,15 @@ run_upgrade() {
   chmod 0600 "$staged"
   mv -f "$staged" "$BASE/.env"
   printf '%s\n' "启动新镜像并检查容器健康..."
-  if compose up -d --no-deps --wait server; then
+  # Shared network namespace requires cloudflared recreation after Server replacement.
+  if compose up -d --no-deps --wait server && { [ "$had_tunnel" -eq 0 ] || refresh_tunnel; }; then
     rm -f "$previous"
     printf '%s\n' "[成功] Server 健康检查通过；原数据未改动。旧镜像留存在本机供手动回滚。"
     return 0
   fi
   printf '%s\n' "[警告] 新镜像启动失败，恢复原镜像配置并尝试重启。" >&2
   mv -f "$previous" "$BASE/.env"
-  if compose up -d --no-deps --wait server; then
+  if compose up -d --no-deps --wait server && { [ "$had_tunnel" -eq 0 ] || refresh_tunnel; }; then
     die "已回滚旧镜像，升级未完成"
   fi
   die "升级失败且自动回滚未通过健康检查；请检查 docker compose logs server，不要删除数据"
@@ -60,7 +65,10 @@ require_docker
 case "${1:-help}" in
   start)
     check_data
+    had_tunnel=0
+    if tunnel_is_running; then had_tunnel=1; fi
     compose up -d --no-deps --wait server
+    if [ "$had_tunnel" -eq 1 ]; then refresh_tunnel; fi
     ;;
   status)
     compose ps
@@ -81,7 +89,7 @@ case "${1:-help}" in
     ;;
   tunnel-start)
     [ -s "$BASE/secrets/cloudflared.token" ] || die "缺少独立 MiniProbe Tunnel Token 文件；不要使用 HomeSphere Token"
-    tunnel_compose up -d cloudflared
+    refresh_tunnel
     ;;
   tunnel-stop)
     tunnel_compose stop cloudflared
