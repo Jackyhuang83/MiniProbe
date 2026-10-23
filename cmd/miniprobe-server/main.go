@@ -46,7 +46,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.34-alpha"
+	serverVersion        = "0.4.35-alpha"
 	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -374,6 +374,8 @@ func main() {
 	publicMux.HandleFunc("/api/v1/subscriptions/login", s.subscriptionLogin)
 	publicMux.HandleFunc("/api/v1/subscriptions/logout", s.subscriptionLogout)
 	publicMux.HandleFunc("/api/v1/subscriptions", s.subscriptionRead)
+	publicMux.HandleFunc("/api/v1/subscriptions/manage", s.subscriptionWebManage)
+	publicMux.HandleFunc("/api/v1/subscriptions/renewals", s.subscriptionWebRenewal)
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
