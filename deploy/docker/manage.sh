@@ -89,6 +89,11 @@ case "${1:-help}" in
     ;;
   tunnel-start)
     [ -s "$BASE/secrets/cloudflared.token" ] || die "缺少独立 MiniProbe Tunnel Token 文件；不要使用 HomeSphere Token"
+    [ ! -L "$BASE/secrets/cloudflared.token" ] || die "Tunnel Token 不允许是符号链接"
+    token_owner=$(stat -c %u "$BASE/secrets/cloudflared.token")
+    [ "$token_owner" = 10001 ] || die "Token 文件应由 UID 10001 所有，请在宿主机执行 chown 10001:10001 secrets/cloudflared.token"
+    token_mode=$(stat -c %a "$BASE/secrets/cloudflared.token")
+    [ "$token_mode" = 600 ] || die "Token 文件权限应为 0600，请在宿主机执行 chmod 0600 secrets/cloudflared.token"
     refresh_tunnel
     ;;
   tunnel-stop)
