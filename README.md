@@ -10,6 +10,18 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 >
 > 存储目标：MiniProbe 自身持久化数据有明确上限，不把 1 秒遥测永久写盘；长期运行也不能因为“运行时间越久”无限增长。硬预算为 `2 GiB`。
 
+## Docker Server DEV1（开发中，待验证）
+
+针对与 HomeSphere 共用同一台 VPS 的场景，已建立独立 MiniProbe Server Docker Compose 实现（详情见 [Docker 开发与迁移指南](docs/docker-server-dev1.md)）。
+
+- 隔离 Compose 项目、数据目录与网络，不使用 Docker Socket 或特权容器。
+- 仅将 Server 的 28888 端口绑定到宿主机 127.0.0.1；可选独立 Cloudflare Tunnel 容器仍走本机回环。
+- 容器内保留 Unix Socket SSH 管理菜单；禁用会修改宿主机 systemd 的网络切换和二进制自更新功能。
+- 不改变原有 Agent / Snell / SS2022 / Xray；迁移须保留旧 Server 数据库、签名身份与原接入域名。
+- 当前仍为 PR 开发功能，**不能把未发布的 GHCR 镜像视为可安装版本**。原生 systemd/OpenRC 安装方式保持不变。
+
+---
+
 ## 设计原则
 
 - Direct `http://IP:28888` 仅作为最简单的首次部署 / 故障恢复入口；它没有 TLS，不建议长期暴露在公网。
