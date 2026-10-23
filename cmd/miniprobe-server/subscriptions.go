@@ -141,7 +141,9 @@ func (s *server) loadSubscriptions() error {
  b,err:=os.ReadFile(path);if err!=nil{return err}
  var store subscriptionStore
  if err:=json.Unmarshal(b,&store);err!=nil{return fmt.Errorf("订阅文件解析失败: %w",err)}
- if store.Version!=1{return errors.New("订阅文件版本不兼容；拒绝覆盖")}
+ if store.Version!=1&&store.Version!=2{return errors.New("订阅文件版本不兼容；拒绝覆盖")}
+ // Read v1 safely; the first DEV2 write converts it to v2. Older Server
+ // versions must then fail closed instead of stripping unknown history fields.
  if len(store.Items)>subscriptionMaxRecords{return errors.New("订阅数量超过限制")}
  ids:=map[string]bool{}
  for _,item:=range store.Items {
@@ -155,7 +157,7 @@ func (s *server) loadSubscriptions() error {
  return nil
 }
 func (s *server) saveSubscriptionsLocked(store subscriptionStore) error {
- store.Version=1
+ store.Version=2
  if err:=validateSubscriptionDev2(store);err!=nil{return err}
  b,err:=json.MarshalIndent(store,"","  ");if err!=nil{return err}
  if len(b)>subscriptionFileLimit{return errors.New("订阅存储超过 1 MiB 限制")}
