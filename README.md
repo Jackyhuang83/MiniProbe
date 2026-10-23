@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前发布目标：`v0.4.28-alpha`（Go 安全更新，Server + Agent）；上一个已发布版本：`v0.4.27-alpha`
+当前发布目标：`v0.4.29-alpha`（订阅管理中心 DEV1，Server-only）；上一个已发布版本：`v0.4.28-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -809,3 +809,11 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 安装好的 VPS 不需要额外安装 Go，也不需要 Node.js 或 PHP。本次没有修改流量统计、保护关机、订阅到期、Telegram 或其它业务逻辑。
 - CI Action 同步升级至新版 GitHub 托管 Node 运行时；详细验证范围见 `CHANGELOG-v0.4.28-alpha.md`。
 
+
+## v0.4.29-alpha：订阅管理中心 DEV1（Server-only）
+
+- 新增 Renewlet 风格的中文深色响应式订阅页面及分类、状态、到期时间筛选；通过 HTTPS 和订阅中心独立密码访问。公开 Dashboard 无权访问私人账本。
+- SSH 管理菜单新增 **15. 订阅管理中心**，完成非 VPS 订阅的增删改、状态调整以及独立密码设置；目前不开放网页写入。
+- 现有 VPS 费用、币种、到期日期直接从节点配置读取，绝不二次录入；私有订阅存储于独立的 0600 JSON 文件。
+- Server 版本为 `0.4.29-alpha`，**目标 Agent 仍是 `0.4.28-alpha`**，升级 Server 不要求升级 Agent。
+- 使用细则见 `docs/subscriptions-dev1.md`。到期 Telegram 提醒是 DEV2，费用/日历/备份统计是 DEV3，未包含在本版。
