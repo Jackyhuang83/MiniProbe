@@ -95,6 +95,7 @@ jobs:
           node --check cmd/miniprobe-server/web/network.js
           node --check cmd/miniprobe-server/web/traffic.js
           node --check cmd/miniprobe-server/web/subscriptions.js
+          node scripts/test-release-version.cjs
           node scripts/test-subscription-cards.cjs
           node scripts/test-traffic-ranking.cjs
 
