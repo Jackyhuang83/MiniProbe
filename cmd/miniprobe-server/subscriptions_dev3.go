@@ -78,8 +78,17 @@ func (s *server) localSubscriptionRestore(w http.ResponseWriter,r *http.Request)
  }
  if err:=validateSubscriptionDev2(store);err!=nil{http.Error(w,"invalid renewal/reminder data",400);return}
  s.subscriptionMu.Lock();defer s.subscriptionMu.Unlock()
- // Restore uses the existing atomic private-ledger writer. The operator must
- // create a separate backup first if the current state needs preserving.
+ // Refuse restore unless a safety copy of the current ledger was made.
+ current,err:=json.MarshalIndent(s.subscriptions,"","  ")
+ if err!=nil||len(current)>subscriptionFileLimit{http.Error(w,"cannot serialize current ledger",500);return}
+ safetyName:="subscriptions-pre-restore-"+time.Now().UTC().Format("20060102T150405.000000000")+".json"
+ safetyPath:=filepath.Join(s.subscriptionBackupDir(),safetyName)
+ safety,err:=os.OpenFile(safetyPath,os.O_CREATE|os.O_EXCL|os.O_WRONLY,0600)
+ if err!=nil{http.Error(w,"cannot create pre-restore backup",500);return}
+ _,err=safety.Write(current)
+ if err==nil{err=safety.Sync()}
+ closeErr:=safety.Close();if err==nil{err=closeErr}
+ if err!=nil{_ = os.Remove(safetyPath);http.Error(w,"pre-restore backup failed",500);return}
  if err:=s.saveSubscriptionsLocked(store);err!=nil{http.Error(w,fmt.Sprintf("restore failed: %v",err),500);return}
  writeJSON(w,200,map[string]bool{"ok":true})
 }
