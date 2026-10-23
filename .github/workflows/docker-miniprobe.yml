@@ -1,8 +1,13 @@
 name: Publish MiniProbe Docker Server
 
 on:
-  # Publishing images is a separate explicit step after PR CI and merge.
-  # Do not consume GHCR/Actions quota or publish on every main change.
+  # Publish Docker images when Docker deployment or this publishing workflow changes.
+  # Normal MiniProbe changes do not trigger expensive multi-architecture builds.
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/docker/**'
+      - '.github/workflows/docker-miniprobe.yml'
   workflow_dispatch:
 
 permissions:
