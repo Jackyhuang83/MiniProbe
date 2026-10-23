@@ -5,6 +5,10 @@
   let items = [];
   let renewals = [];
   let reminderConfig = {enabled:false,days:[]};
+  let csrf = "";
+  let editingID = "";
+  let renewingID = "";
+  let busy = false;
   const categoryText = {vps:"VPS",video:"影视 / IPTV",ai:"AI 服务",domain:"域名 / 云服务",software:"软件 / App",other:"其他订阅"};
   const categoryIcon = {vps:"▣",video:"▶",ai:"✧",domain:"◎",software:"▦",other:"◇"};
   const statusText = {active:"有效",paused:"已暂停",cancelled:"已取消",expired:"已到期"};
@@ -20,11 +24,17 @@
     if(item.source==="vps") return {label:"续费方式未设置",style:"unknown",icon:"○"};
     return item.auto_renew===true?{label:"自动续费",style:"automatic",icon:"↻"}:{label:"手动续费",style:"manual",icon:"◷"};
   }
-  function alertText(message) {$("subNotice").textContent=message;$("subNotice").classList.remove("hidden");}
-  function clearAlert() {$("subNotice").classList.add("hidden");$("subNotice").textContent="";}
+  function alertText(message,success=false) {$("subNotice").textContent=message;$("subNotice").classList.remove("hidden");$("subNotice").classList.toggle("success",success);}
+  function clearAlert() {$("subNotice").classList.add("hidden");$("subNotice").classList.remove("success");$("subNotice").textContent="";}
   async function request(path, options={}) {
-    const response=await fetch(api+path,{credentials:"same-origin",cache:"no-store",...options,headers:{"X-MiniProbe-Request":"1",...(options.headers||{})}});
-    if (!response.ok) throw new Error(response.status===401?"访问未授权，请重新登录":response.status===403?"必须通过 HTTPS 安全访问":response.status===429?"尝试次数过多，请稍后再试":"服务器请求失败 ("+response.status+")");
+    const write=path==="/manage"||path==="/renewals";
+    if(write&&!csrf)throw new Error("安全会话未就绪，请重新登录。");
+    const headers={"X-MiniProbe-Request":"1",...(write?{"Content-Type":"application/json","X-MiniProbe-Subscription-CSRF":csrf}:{}),...(options.headers||{})};
+    const response=await fetch(api+path,{credentials:"same-origin",cache:"no-store",...options,headers});
+    if (!response.ok) {
+      const details=(response.status===400||response.status===409)&&typeof response.text==="function"?(await response.text()).trim().slice(0,160):"";
+      throw new Error(details||({401:"访问未授权，请重新登录",403:"安全校验失败：请确认 HTTPS、登录状态及页面未过期",404:"记录不存在，请刷新页面",429:"尝试次数过多，请稍后再试"}[response.status]||"服务器请求失败 ("+response.status+")"));
+    }
     return response.json();
   }
   function authView(yes) {
@@ -97,10 +107,25 @@
     if(item.source==="vps")meta+=" · 来源："+(item.node_id||"节点");
     if(item.tags?.length)meta+=" · "+item.tags.join(", ");
     node.append(el("div","sub-meta",meta));
+    const actions=el("div","sub-card-actions");
+    if(item.source==="manual"){
+      const edit=el("button","","编辑");
+      edit.type="button";edit.addEventListener("click",()=>openEditor(item));
+      actions.append(edit);
+    }
+    const renew=el("button","",item.source==="vps"?"记录付款":"记录续费");
+    renew.type="button";renew.addEventListener("click",()=>openRenewal(item));
+    actions.append(renew);
+    if(item.source==="manual"){
+      const del=el("button","sub-danger","删除");
+      del.type="button";del.addEventListener("click",()=>deleteSubscription(item));
+      actions.append(del);
+    }
+    node.append(actions);
     return node;
   }
   function renderRenewals() {
-    $("subReminderState").textContent = reminderConfig.enabled ? "到期提醒：已开启 · "+reminderConfig.days.map(x=>x===-1?"逾期一次":x===0?"当天":x+" 天前").join("、") : "到期提醒：未开启（SSH 菜单 15 → 8 设置）";
+    $("subReminderState").textContent = reminderConfig.enabled ? "到期提醒：已开启 · "+reminderConfig.days.map(x=>x===-1?"逾期一次":x===0?"当天":x+" 天前").join("、") : "到期提醒：未开启（本地菜单 15 → 8 设置）";
     const names=new Map(items.map(x=>[x.id,x.name]));
     const list=$("subRenewalHistory");
     list.replaceChildren(...renewals.slice(0,12).map(record=>{
@@ -210,9 +235,112 @@
     reminderConfig=result.reminders||{enabled:false,days:[]};
     clearAlert();authView(true);render();renderRenewals();renderInsights();
   }
+  function minorFromInput(value,currency){
+    const raw=String(value).trim();
+    if(!/^\\d{1,10}(\\.\\d{1,3})?$/.test(raw))throw new Error("金额只能输入非负数字，最多三位小数。");
+    const [whole,part=""]=raw.split(".");
+    const digits=decimal(currency);
+    if(part.length>digits)throw new Error(currency+" 最多支持 "+digits+" 位小数。");
+    const minor=Number(whole)*Math.pow(10,digits)+Number((part+"0".repeat(digits)).slice(0,digits)||0);
+    if(!Number.isSafeInteger(minor)||minor>1e12)throw new Error("金额超出允许范围。");
+    return minor;
+  }
+  function amountRaw(item){
+    const digits=decimal(item.currency||"USD");
+    return (Number(item.amount_minor||0)/Math.pow(10,digits)).toFixed(digits);
+  }
+  function closePanels(){
+    $("subEditor").classList.add("hidden");
+    $("subRenewEditor").classList.add("hidden");
+    editingID="";renewingID="";
+  }
+  function reveal(id){
+    $(id).classList.remove("hidden");
+    $(id).scrollIntoView?.({block:"start",behavior:"smooth"});
+  }
+  function refreshCycle(){
+    const cycle=$("subEditCycle").value;
+    $("subEditCustomWrap").classList.toggle("hidden",cycle!=="custom");
+    $("subEditCustomDays").required=cycle==="custom";
+    $("subEditDueWrap").classList.toggle("hidden",cycle==="long_term");
+    $("subEditDue").required=cycle!=="long_term";
+  }
+  function openEditor(item=null){
+    if(busy)return;
+    closePanels();clearAlert();
+    editingID=item?.source==="manual"?item.id:"";
+    $("subEditorTitle").textContent=editingID?"编辑订阅":"添加订阅";
+    $("subEditName").value=item?.name||"";
+    $("subEditCategory").value=item?.category||"video";
+    $("subEditCurrency").value=item?.currency||"USD";
+    $("subEditAmount").value=item?amountRaw(item):"";
+    $("subEditCycle").value=item?.cycle||"monthly";
+    $("subEditCustomDays").value=item?.custom_days||"";
+    $("subEditDue").value=item?.due_date||"";
+    $("subEditStatus").value=item?.status||"active";
+    $("subEditZone").value=item?.time_zone||"Asia/Tokyo";
+    $("subEditAuto").checked=!!item?.auto_renew;
+    $("subEditTags").value=(item?.tags||[]).join(", ");
+    $("subEditNotes").value=item?.notes||"";
+    refreshCycle();
+    reveal("subEditor");
+    $("subEditName").focus?.();
+  }
+  function openRenewal(item){
+    if(busy)return;
+    closePanels();clearAlert();
+    renewingID=item.id;
+    $("subRenewTitle").textContent="记录续费 · "+item.name;
+    const canChangeDue=item.source==="manual"&&item.cycle!=="long_term";
+    $("subRenewDueWrap").classList.toggle("hidden",!canChangeDue);
+    $("subRenewDue").value="";
+    $("subRenewHint").textContent=canChangeDue?"可填写续费后的新到期日；不填写则只追加付款记录。":"VPS 到期日仍由节点菜单管理；这里只记录实际付款。";
+    $("subRenewDate").value=todayAt(item.time_zone);
+    $("subRenewCurrency").value=item.currency||"USD";
+    $("subRenewAmount").value=amountRaw(item);
+    $("subRenewNotes").value="";
+    reveal("subRenewEditor");
+  }
+  async function mutate(path,method,payload,success,button){
+    if(busy)return;
+    busy=true;button.disabled=true;
+    try{
+      await request(path,{method,body:payload===undefined?undefined:JSON.stringify(payload)});
+      await load();
+      closePanels();
+      alertText(success,true);
+    }catch(e){alertText(e.message);}
+    finally{busy=false;button.disabled=false;}
+  }
+  function subscriptionPayload(){
+    const currency=$("subEditCurrency").value.trim().toUpperCase();
+    const cycle=$("subEditCycle").value;
+    const rec={
+      name:$("subEditName").value.trim(),
+      category:$("subEditCategory").value,
+      amount_minor:minorFromInput($("subEditAmount").value,currency),
+      currency,
+      cycle,
+      custom_days:cycle==="custom"?Number($("subEditCustomDays").value):0,
+      due_date:cycle==="long_term"?"":$("subEditDue").value,
+      time_zone:$("subEditZone").value.trim(),
+      auto_renew:$("subEditAuto").checked,
+      status:$("subEditStatus").value,
+      tags:$("subEditTags").value.split(",").map(x=>x.trim()).filter(Boolean),
+      notes:$("subEditNotes").value.trim()
+    };
+    if(editingID)rec.id=editingID;
+    return rec;
+  }
+  async function deleteSubscription(item){
+    if(busy||item.source!=="manual")return;
+    if(!window.confirm("永久删除「"+item.name+"」？\\n历史付款记录将保留，但订阅卡片会删除。"))return;
+    await mutate("/manage?id="+encodeURIComponent(item.id),"DELETE",undefined,"已删除订阅："+item.name,document.createElement("button"));
+  }
   async function init() {
     try {
       const s=await request("/session");
+      csrf=s.authenticated?(s.csrf||""):"";
       if(!s.secure){
         authView(false);
         $("subGateText").textContent="当前连接不是安全的 HTTPS。为了保护私人费用信息，订阅中心拒绝通过 HTTP 登录或读取。请使用已配置的 HTTPS Tunnel。";
@@ -234,13 +362,16 @@
     try {
       await request("/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});
       $("subPassword").value="";
+      const session=await request("/session");
+      csrf=session.authenticated?(session.csrf||""):"";
+      if(!csrf)throw new Error("未取得安全写入令牌，请刷新后重试。");
       await load();
     }catch(e){alertText(e.message);}
   });
   $("subLogout").addEventListener("click",async()=>{
     try{await request("/logout",{method:"POST"});}
     catch(e){alertText(e.message);return;}
-    items=[];authView(false);
+    items=[];csrf="";closePanels();authView(false);
   });
   for(const id of ["subQuery","subCategory","subStatus"])$(id).addEventListener(id==="subQuery"?"input":"change",render);
   const currentYear=new Date().getFullYear();
@@ -248,5 +379,35 @@
   $("subYear").value=String(currentYear);
   $("subCalendarMonth").value=String(new Date().getMonth()+1);
   for(const id of ["subYear","subCalendarMonth"])$(id).addEventListener("change",renderInsights);
+  $("subAdd").addEventListener("click",()=>openEditor());
+  $("subEditCycle").addEventListener("change",refreshCycle);
+  for(const id of ["subEditCancel","subEditCancelTop","subRenewCancel","subRenewCancelTop"])
+    $(id).addEventListener("click",closePanels);
+  $("subEditForm").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(busy)return;
+    try{
+      const payload=subscriptionPayload();
+      await mutate("/manage",editingID?"PUT":"POST",payload,editingID?"订阅已更新。":"订阅已添加。",$("subEditSave"));
+    }catch(e){alertText(e.message);}
+  });
+  $("subRenewForm").addEventListener("submit",async event=>{
+    event.preventDefault();
+    if(busy||!renewingID)return;
+    const item=items.find(x=>x.id===renewingID);
+    if(!item){alertText("订阅记录已变化，请刷新页面。");return;}
+    try{
+      const currency=$("subRenewCurrency").value.trim().toUpperCase();
+      const data={
+        subscription_id:renewingID,
+        date:$("subRenewDate").value,
+        amount_minor:minorFromInput($("subRenewAmount").value,currency),
+        currency,
+        new_due_date:item.source==="manual"&&item.cycle!=="long_term"?$("subRenewDue").value:"",
+        notes:$("subRenewNotes").value.trim()
+      };
+      await mutate("/renewals","POST",data,"续费记录已保存。",$("subRenewSave"));
+    }catch(e){alertText(e.message);}
+  });
   init();
 })();
