@@ -24,7 +24,11 @@ func (s *server) localSubscriptionBackup(w http.ResponseWriter,r *http.Request){
  if err:=os.Chmod(dir,0700);err!=nil{http.Error(w,"backup permissions error",500);return}
  s.subscriptionMu.Lock();defer s.subscriptionMu.Unlock()
  if err:=validateSubscriptionDev2(s.subscriptions);err!=nil{http.Error(w,"ledger invalid",500);return}
- data,err:=json.MarshalIndent(s.subscriptions,"","  ")
+ snapshot:=s.subscriptions
+ // New installations can still hold the in-memory v1 ledger until first write.
+ // Backups must always use the validated v2 format expected by restore.
+ snapshot.Version=2
+ data,err:=json.MarshalIndent(snapshot,"","  ")
  if err!=nil||len(data)>subscriptionFileLimit{http.Error(w,"backup exceeds limit",500);return}
  name:="subscriptions-"+time.Now().UTC().Format("20060102T150405")+".json"
  path:=filepath.Join(dir,name)
