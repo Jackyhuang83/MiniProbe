@@ -19,6 +19,7 @@ assert.match(compose, /mem_limit: 512m/);
 assert.match(compose, /\/var\/lib\/miniprobe:rw/);
 assert.doesNotMatch(compose + tunnel, /docker\.sock|privileged:\s*true|network_mode:\s*host|home[sS]phere|8080:|12333:/);
 assert.match(tunnel, /--token-file/);
+assert.match(tunnel, /user: "10001:10001"/);
 assert.match(tunnel, /network_mode: service:server/);
 assert.match(tunnel, /condition: service_healthy/);
 assert.match(tunnel, /file: \.\/secrets\/cloudflared\.token/);
