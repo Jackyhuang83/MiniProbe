@@ -61,6 +61,55 @@ run_upgrade() {
   fi
   die "升级失败且自动回滚未通过健康检查；请检查 docker compose logs server，不要删除数据"
 }
+
+# This function is exclusively host-side: it never runs inside the Server
+# container and never grants a container access to the Docker daemon.
+run_auto_upgrade() {
+  [ -t 0 ] && [ -t 1 ] || die "自动更新需要交互式 SSH 终端，请使用 sh manage.sh menu"
+  [ -f "$BASE/.env" ] || die "缺少 .env，未进行修改"
+  check_data
+  current=$(sed -n 's/^MINIPROBE_IMAGE=//p' "$BASE/.env" | tail -n 1)
+  [ -n "$current" ] || die ".env 缺少 MINIPROBE_IMAGE"
+  source_tag="ghcr.io/jackyhuang83/miniprobe-server:docker-dev1"
+  printf '%s\n' "========== MiniProbe Docker Server 更新 =========="
+  printf '%s\n' "当前镜像: $current"
+  printf '%s\n' "从 MiniProbe GHCR 拉取最近已发布的 Docker 镜像（当前服务不中断）..."
+  docker pull "$source_tag" || die "拉取失败，当前 Server 未修改"
+
+  # Resolve the moving channel to an immutable, repository-scoped SHA256
+  # digest before any upgrade. Never store :latest/:docker-dev1 in .env.
+  candidates=$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$source_tag") ||
+    die "镜像缺少可验证的仓库摘要"
+  target=""
+  for ref in $candidates; do
+    case "$ref" in
+      ghcr.io/jackyhuang83/miniprobe-server@sha256:*) target="$ref" ;;
+    esac
+  done
+  [ -n "$target" ] || die "无法找到 MiniProbe 官方仓库镜像摘要"
+  checksum=${target##*sha256:}
+  [ "${#checksum}" -eq 64 ] || die "镜像摘要长度异常"
+  case "$checksum" in *[!0123456789abcdef]*) die "镜像摘要格式异常";; esac
+
+  new_id=$(docker image inspect --format '{{.Id}}' "$target") ||
+    die "不能读取新镜像身份，当前 Server 未修改"
+  old_id=$(docker image inspect --format '{{.Id}}' "$current" 2>/dev/null || true)
+  if [ -n "$old_id" ] && [ "$old_id" = "$new_id" ]; then
+    printf '%s\n' "已是最新已发布 Docker 镜像，无需重启或重复安装。"
+    return 0
+  fi
+
+  printf '%s\n' "可用新版镜像: $target"
+  printf '%s\n' "升级将保留 data/、节点凭据和 Tunnel Token，并做健康检查；失败会尝试回滚。"
+  printf '%s' "输入 YES 确认升级（其他输入取消）: "
+  IFS= read -r confirmation </dev/tty || die "未取得终端确认，已取消"
+  if [ "$confirmation" != YES ]; then
+    printf '%s\n' "已取消，现有 Server 未修改。"
+    return 0
+  fi
+  run_upgrade "$target"
+}
+
 require_docker
 case "${1:-help}" in
   start)
@@ -75,7 +124,19 @@ case "${1:-help}" in
     ;;
   menu)
     check_data
-    compose exec server /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock
+    if compose exec server /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock; then
+      :
+    else
+      status=$?
+      if [ "$status" -eq 73 ]; then
+        run_auto_upgrade
+      else
+        exit "$status"
+      fi
+    fi
+    ;;
+  update)
+    run_auto_upgrade
     ;;
   logs)
     compose logs --tail=100 server
@@ -101,6 +162,6 @@ case "${1:-help}" in
     ;;
   *)
     printf '%s\n' "MiniProbe Docker · 独立于 HomeSphere"
-    printf '%s\n' "用法：./manage.sh {start|status|menu|logs|stop|upgrade <image>|tunnel-start|tunnel-stop}"
+    printf '%s\n' "用法：./manage.sh {start|status|menu|update|logs|stop|upgrade <image>|tunnel-start|tunnel-stop}"
     ;;
 esac

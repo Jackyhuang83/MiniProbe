@@ -46,7 +46,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.31-alpha"
+	serverVersion        = "0.4.32-alpha"
 	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -305,6 +305,9 @@ func main() {
 
 	if *manage {
 		if err := runManager(*adminSocket); err != nil {
+			if errors.Is(err, errDockerUpgradeRequested) {
+				os.Exit(dockerUpgradeRequestExitCode)
+			}
 			fmt.Fprintln(os.Stderr, "MiniProbe 管理失败:", err)
 			os.Exit(1)
 		}
@@ -2406,8 +2409,12 @@ func runManager(socketPath string) error {
 		case "12":
 			manageAgentUpgrades(reader, client)
 		case "13":
-			if manageServerUpdate(reader, socketPath) {
-				return nil // The old CLI process must not remain open after replacing the executable.
+			finished, updateErr := dispatchServerUpdateMenu(reader, socketPath)
+			if updateErr != nil {
+				return updateErr // Docker: exit with a fixed handoff code; host helper owns Docker.
+			}
+			if finished {
+				return nil // Old native CLI must exit after replacing its executable.
 			}
 		case "14":
 			manageIPAttributeSettings(reader, client)

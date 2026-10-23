@@ -376,6 +376,21 @@ func updateMiniProbeServer(client *http.Client, tag, socket string) error {
 	return nil
 }
 
+// A fixed exit status, not a general command channel, requests a host-side
+// Docker update. Only the SSH host helper may interpret this status.
+const dockerUpgradeRequestExitCode = 73
+
+var errDockerUpgradeRequested = errors.New("host-managed docker update requested")
+
+func dispatchServerUpdateMenu(reader *bufio.Reader, socket string) (bool, error) {
+	if isDockerDeployment() {
+		fmt.Println("Docker Server 更新由宿主机管理脚本执行；返回 SSH 后将检查 GHCR 镜像。")
+		fmt.Println("容器不接触 Docker Socket，也不会在容器内替换二进制。")
+		return false, errDockerUpgradeRequested
+	}
+	return manageServerUpdate(reader, socket), nil
+}
+
 func manageServerUpdate(reader *bufio.Reader, socket string) bool {
 	if isDockerDeployment() {
 		fmt.Println("Docker 模式禁止在容器内替换二进制或重启宿主机服务。")
