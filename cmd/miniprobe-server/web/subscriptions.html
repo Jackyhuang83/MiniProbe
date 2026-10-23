@@ -18,7 +18,7 @@
       <a href="/ui/0.4.29-alpha/"><span>▦</span> 监控 Dashboard</a>
       <a href="/ui/0.4.29-alpha/traffic.html"><span>↗</span> 流量统计</a>
     </nav>
-    <div class="sub-side-note">DEV2 · 只读网页<br>订阅与续费管理、提醒设置请在 Server SSH 菜单操作。</div>
+    <div class="sub-side-note">DEV3 · 只读网页<br>订阅与续费管理、提醒设置请在 Server SSH 菜单操作。</div>
   </aside>
   <main class="sub-main">
     <header class="sub-top">
@@ -60,13 +60,25 @@
         <div id="subCards" class="sub-cards"></div>
         <div id="subEmpty" class="sub-empty hidden">没有符合条件的订阅。<br>请通过 SSH 管理菜单新增，或检查筛选条件。</div>
       </section>
+      <section class="sub-panel sub-history-panel" id="sub-insights">
+        <div class="sub-section-title"><div><h2>年度费用预测</h2><p>按币种独立统计，不换汇、不把预测当成已支付</p></div><label class="sub-insights-picker">年度 <select id="subYear" aria-label="选择预测年度"></select></label></div>
+        <div class="sub-forecast-total" id="subForecastTotal">—</div>
+        <p id="subForecastCaveat" class="sub-forecast-caveat"></p>
+        <div id="subMonthRows" class="sub-month-grid"></div>
+      </section>
+      <section class="sub-panel sub-history-panel" id="sub-calendar">
+        <div class="sub-section-title"><div><h2>续费日历</h2><p>根据手动订阅的已知到期日和周期预测</p></div><label class="sub-insights-picker">月份 <select id="subCalendarMonth" aria-label="选择日历月份"><option value="1">1 月</option><option value="2">2 月</option><option value="3">3 月</option><option value="4">4 月</option><option value="5">5 月</option><option value="6">6 月</option><option value="7">7 月</option><option value="8">8 月</option><option value="9">9 月</option><option value="10">10 月</option><option value="11">11 月</option><option value="12">12 月</option></select></label></div>
+        <div class="sub-calendar-week"><span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span></div>
+        <div id="subCalendarGrid" class="sub-calendar-grid"></div>
+        <p id="subCalendarSummary" class="sub-forecast-caveat"></p>
+      </section>
       <section class="sub-panel sub-history-panel" id="sub-history">
         <div class="sub-section-title"><div><h2>最近续费记录</h2><p>历史只追加，不允许网页修改；按实际支付币种展示</p></div></div>
         <div id="subReminderState" class="sub-reminder-state"></div>
         <div id="subRenewalHistory" class="sub-history-list"></div>
         <div id="subRenewalEmpty" class="sub-empty">暂无续费历史。通过 SSH 菜单 15 → 7 记录续费。</div>
       </section>
-      <div class="sub-bottom-tip"><span>✦</span> DEV2 · 续费历史与可选 Telegram 到期提醒。跨币种统计、日历及备份将在 DEV3 开发。</div>
+      <div class="sub-bottom-tip"><span>✦</span> DEV3 · 月度/年度预测、续费日历、续费历史。私人备份仅通过 SSH 管理，不向公网提供下载。</div>
     </div>
   </main>
 </div>
