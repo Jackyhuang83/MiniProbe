@@ -1,0 +1,37 @@
+"use strict";
+const fs = require("node:fs");
+const assert = require("node:assert/strict");
+
+const read = path => fs.readFileSync(path, "utf8");
+const compose = read("deploy/docker/compose.yaml");
+const tunnel = read("deploy/docker/compose.tunnel.yaml");
+const dockerfile = read("deploy/docker/Dockerfile");
+const manager = read("deploy/docker/manage.sh");
+const ignored = read(".dockerignore");
+
+assert.match(compose, /^name: miniprobe$/m);
+assert.match(compose, /127\.0\.0\.1:28888:28888/);
+assert.match(compose, /user: "10001:10001"/);
+assert.match(compose, /read_only: true/);
+assert.match(compose, /no-new-privileges:true/);
+assert.match(compose, /cap_drop:\s*\n\s*- ALL/);
+assert.match(compose, /mem_limit: 512m/);
+assert.match(compose, /\/var\/lib\/miniprobe:rw/);
+assert.doesNotMatch(compose + tunnel, /docker\.sock|privileged:\s*true|network_mode:\s*host|home[sS]phere|8080:|12333:/);
+assert.match(tunnel, /--token-file/);
+assert.match(tunnel, /user: "10001:10001"/);
+assert.match(tunnel, /network_mode: service:server/);
+assert.match(tunnel, /condition: service_healthy/);
+assert.match(tunnel, /file: \.\/secrets\/cloudflared\.token/);
+assert.doesNotMatch(tunnel, /--token\s+[a-zA-Z0-9]/);
+assert.match(dockerfile, /golang:1\.26\.10-alpine/);
+assert.match(dockerfile, /USER 10001:10001/);
+assert.match(dockerfile, /miniprobe-entrypoint/);
+assert.match(dockerfile, /GOARM=7/);
+assert.match(dockerfile, /MINIPROBE_DEPLOYMENT=docker/);
+assert.match(manager, /check_data/);
+assert.match(manager, /docker pull "\$target"/);
+assert.match(manager, /已回滚旧镜像/);
+assert.match(ignored, /\*\*\/secrets/);
+assert.match(ignored, /\*\*\/data/);
+console.log("Docker isolation and data safety checks passed");

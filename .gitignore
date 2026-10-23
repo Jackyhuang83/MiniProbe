@@ -19,3 +19,10 @@ coverage.out
 .DS_Store
 .idea/
 .vscode/
+
+# Docker Server migration/runtime: never commit credentials or private ledgers
+/deploy/docker/.env
+/deploy/docker/.env.prev.*
+/deploy/docker/.env.next.*
+/deploy/docker/data/
+/deploy/docker/secrets/

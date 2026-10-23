@@ -377,6 +377,11 @@ func updateMiniProbeServer(client *http.Client, tag, socket string) error {
 }
 
 func manageServerUpdate(reader *bufio.Reader, socket string) bool {
+	if isDockerDeployment() {
+		fmt.Println("Docker 模式禁止在容器内替换二进制或重启宿主机服务。")
+		fmt.Println("请通过 MiniProbe Docker 管理脚本升级镜像并做健康检查；失败时可回滚旧镜像。")
+		return false
+	}
 	fmt.Println("\n========== Server 更新 ==========")
 	fmt.Println("当前 Server:", serverVersion)
 	fmt.Println("目标 Agent:", agentTargetVersion)

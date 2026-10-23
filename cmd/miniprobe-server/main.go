@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -32,6 +33,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Jackyhuang83/MiniProbe/internal/common"
@@ -383,7 +385,29 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 	log.Printf("MiniProbe server listening on %s", *listen)
-	log.Fatal(srv.ListenAndServe())
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP shutdown: %v", err)
+		}
+	}()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	// Persist completed history windows only. Forcing incomplete buckets to disk
+	// here would create duplicate intervals after a quick container restart.
+	now := time.Now().UTC()
+	s.flushCompletedHistoryMinutes(now)
+	if err := s.flushTrafficHistory(now); err != nil {
+		log.Printf("flush traffic on shutdown: %v", err)
+	}
+	if err := s.save(); err != nil {
+		log.Printf("save state on shutdown: %v", err)
+	}
 }
 
 func (s *server) loadOrInit(publicURL, dashboardMode, dashboardPassword string) (bool, string, error) {
@@ -2976,6 +3000,11 @@ func manageDashboard(r *bufio.Reader, c *localClient) {
 }
 
 func manageNetworkAccess(r *bufio.Reader, c *localClient, socketPath string) {
+	if isDockerDeployment() {
+		fmt.Println("Docker 模式：端口和 Cloudflare Tunnel 由独立的 Compose 文件管理。")
+		fmt.Println("此菜单不会操作宿主机 systemd；请在 VPS SSH 使用 MiniProbe Docker 管理脚本。")
+		return
+	}
 	cfg, err := getLocalConfig(c)
 	if err != nil {
 		fmt.Println("读取设置失败:", err)

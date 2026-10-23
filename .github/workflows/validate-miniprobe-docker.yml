@@ -1,0 +1,34 @@
+name: Validate MiniProbe Docker
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - deploy/docker/**
+      - .dockerignore
+      - scripts/test-docker-*.sh
+      - scripts/test-docker-*.cjs
+      - cmd/miniprobe-server/main.go
+      - cmd/miniprobe-server/server_update.go
+      - cmd/miniprobe-server/container_deployment*.go
+      - .github/workflows/validate-miniprobe-docker.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Check Docker isolation
+        run: |
+          node scripts/test-docker-config.cjs
+          sh -n deploy/docker/manage.sh
+          bash -n scripts/test-docker-smoke.sh
+      - name: Build linux/amd64 image (not published)
+        run: docker build -f deploy/docker/Dockerfile -t miniprobe-server:ci .
+      - name: Run isolated smoke test (no external Tunnel)
+        run: bash scripts/test-docker-smoke.sh

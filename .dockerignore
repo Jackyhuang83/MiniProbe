@@ -1,0 +1,17 @@
+# Never send runtime data, tokens, backups or HomeSphere files to Docker builds.
+.git
+.github
+**/.DS_Store
+**/*.log
+**/*.pid
+**/*.env
+**/data
+**/data/**
+**/secrets
+**/secrets/**
+**/subscription-backups
+**/subscription-backups/**
+dist
+*.zip
+*.tar
+*.tar.gz
