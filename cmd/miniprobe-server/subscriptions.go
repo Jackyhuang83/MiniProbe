@@ -55,7 +55,7 @@ type subscriptionStore struct {
  Items []subscriptionRecord `json:"items"`
  Renewals []subscriptionRenewalEvent `json:"renewals,omitempty"`
  RemindersEnabled bool `json:"reminders_enabled,omitempty"`
- ReminderDays []int `json:"reminder_days,omitempty"`
+ ReminderDays []int `json:"reminder_days"`
  ReminderOverrides map[string][]int `json:"reminder_overrides,omitempty"`
  Receipts []subscriptionReminderReceipt `json:"reminder_receipts,omitempty"`
 }
