@@ -48,5 +48,22 @@ const findClass=(el,name)=>el.className.split(" ").includes(name)||(el.children|
   assert.match(flattened(cards[3]),/续费方式未设置/);
   assert.doesNotMatch(flattened(cards[3]),/手动续费|自动续费/,"never invent VPS renewal mode");
   assert.match(flattened(cards[3]),/节点月租金额/);
-  console.log("Subscription card billing cycle and renewal labels: OK");
+  // Verify first-time setup explains Docker container menus accurately.
+  const setupElements=new Map();
+  const setupDocument={
+    createElement:tag=>new FakeElement(tag),
+    getElementById:id=>{
+      if(!setupElements.has(id))setupElements.set(id,new FakeElement("div"));
+      return setupElements.get(id);
+    }
+  };
+  const setupFetch=async()=>({ok:true,json:async()=>({secure:true,enabled:false,authenticated:false})});
+  vm.runInNewContext(source,{document:setupDocument,fetch:setupFetch,Date,Intl});
+  for(let n=0;n<3;n++) await new Promise(resolve=>setImmediate(resolve));
+  assert.match(setupElements.get("subGateText").textContent,/Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6/);
+  assert.doesNotMatch(setupElements.get("subGateText").textContent,/Server SSH/);
+  const html=fs.readFileSync(path.join(__dirname,"..","cmd","miniprobe-server","web","subscriptions.html"),"utf8");
+  assert.match(html,/Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6/);
+  assert.doesNotMatch(html,/Server SSH/);
+  console.log("Subscription card and Docker first-time setup guidance: OK");
 })().catch(err=>{console.error(err);process.exitCode=1});

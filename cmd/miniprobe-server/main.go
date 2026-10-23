@@ -2386,7 +2386,7 @@ func runManager(socketPath string) error {
 		fmt.Println("12. Agent 版本管理 / 集中升级")
 		fmt.Println("13. Server 检查更新 / 升级")
 		fmt.Println("14. IP 属性检测（默认关闭）")
-		fmt.Println("15. 订阅管理中心（SSH 私有管理）")
+		fmt.Println("15. 订阅管理中心（本地私有管理）")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")

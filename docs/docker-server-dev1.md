@@ -80,3 +80,11 @@ GHCR 仅在人工触发发布后提供开发标签 ghcr.io/jackyhuang83/miniprob
 - 容器烟测不能证明 Cloudflare 实际公网切换成功；原 Tunnel Token 及 HomeSphere 高峰期资源占用都只能在用户授权的 VPS 上实机检查。
 - 镜像回滚不是数据库格式降级工具。格式不兼容的未来版本要先独立备份。
 - Docker 只是进程、网络和磁盘挂载隔离，两项目仍会共享宿主机 CPU、内存、网络及实际硬盘空间。
+
+## Docker 订阅中心首次设置
+
+Docker 安装不需要另行安装宿主机版 MiniProbe。在 VPS SSH 中进入 MiniProbe Docker 部署目录，运行 `sh manage.sh menu`；管理脚本通过 `docker compose exec server` 打开**容器内**的管理菜单。选择 `15 → 6` 设置独立订阅密码（至少 12 个字符），随后通过现有 HTTPS 域名登录订阅中心。
+
+密码由容器内 Server 经本地 Unix 管理 Socket 写入 `/var/lib/miniprobe/subscriptions.json`，实际保存为 Compose 挂载的 `./data/subscriptions.json`。该文件仅保存密码哈希，权限为 `0600`。镜像升级或容器重建必须保留 `./data`。无需暴露 Docker Socket 或公网管理接口。
+
+网页显示“尚未设置独立订阅密码”说明 HTTPS 安全判定已通过、但密码尚未初始化；HTTPS 判定失败会显示单独的错误提示，不应该为了设置密码而放宽 HTTPS 的安全检查。

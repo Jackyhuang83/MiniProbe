@@ -220,7 +220,7 @@
         return;
       }
       if(!s.enabled){
-        $("subGateText").textContent="尚未设置独立订阅密码。请先在 Server SSH 执行 miniprobe → 15 → 6，然后通过 HTTPS 登录。";
+        $("subGateText").textContent="尚未设置独立订阅密码。Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6 设置（可通过 Docker 管理脚本打开）；原生版请在 SSH 执行 miniprobe → 15 → 6。设置后通过 HTTPS 登录。";
         $("subLogin").classList.add("hidden");
         authView(false);return;
       }

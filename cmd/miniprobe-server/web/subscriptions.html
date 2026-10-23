@@ -18,7 +18,7 @@
       <a href="/ui/0.4.33-alpha/"><span>▦</span> 监控 Dashboard</a>
       <a href="/ui/0.4.33-alpha/traffic.html"><span>↗</span> 流量统计</a>
     </nav>
-    <div class="sub-side-note">DEV3 · 只读网页<br>订阅与续费管理、提醒设置请在 Server SSH 菜单操作。</div>
+    <div class="sub-side-note">DEV3 · 只读网页<br>订阅与续费管理、提醒设置请在 MiniProbe 本地管理菜单操作（Docker 版在容器内）。</div>
   </aside>
   <main class="sub-main">
     <header class="sub-top">
@@ -32,10 +32,10 @@
       <p id="subGateText">订阅名称、费用及到期日期不会随公开监控面板展示。需要通过独立密码访问。</p>
       <form id="subLogin">
         <label for="subPassword">订阅中心独立访问密码</label>
-        <input id="subPassword" type="password" autocomplete="current-password" placeholder="请在 SSH 菜单中设置的密码" required minlength="12">
+        <input id="subPassword" type="password" autocomplete="current-password" placeholder="请在 MiniProbe 管理菜单 15 → 6 设置密码" required minlength="12">
         <button class="sub-button sub-primary" type="submit">解锁订阅中心 →</button>
       </form>
-      <p class="sub-gate-footer">请使用 HTTPS。密码可在 MiniProbe SSH 主菜单 → 15 → 6 设置。</p>
+      <p class="sub-gate-footer">请使用 HTTPS。Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6 设置密码；原生版通过 SSH 执行 miniprobe。</p>
     </section>
     <div id="subPrivate" class="hidden">
       <div class="sub-section-title"><div><h2>概览</h2><p>订阅及 VPS 数据实时关联，金额按原始币种显示</p></div><span id="subUpdated" class="sub-muted"></span></div>
@@ -58,7 +58,7 @@
           </select>
         </div>
         <div id="subCards" class="sub-cards"></div>
-        <div id="subEmpty" class="sub-empty hidden">没有符合条件的订阅。<br>请通过 SSH 管理菜单新增，或检查筛选条件。</div>
+        <div id="subEmpty" class="sub-empty hidden">没有符合条件的订阅。<br>请通过 MiniProbe 管理菜单新增，或检查筛选条件。</div>
       </section>
       <section class="sub-panel sub-history-panel" id="sub-insights">
         <div class="sub-section-title"><div><h2>年度费用预测</h2><p>按币种独立统计，不换汇、不把预测当成已支付</p></div><label class="sub-insights-picker">年度 <select id="subYear" aria-label="选择预测年度"></select></label></div>
@@ -76,9 +76,9 @@
         <div class="sub-section-title"><div><h2>最近续费记录</h2><p>历史只追加，不允许网页修改；按实际支付币种展示</p></div></div>
         <div id="subReminderState" class="sub-reminder-state"></div>
         <div id="subRenewalHistory" class="sub-history-list"></div>
-        <div id="subRenewalEmpty" class="sub-empty">暂无续费历史。通过 SSH 菜单 15 → 7 记录续费。</div>
+        <div id="subRenewalEmpty" class="sub-empty">暂无续费历史。通过 MiniProbe 管理菜单 15 → 7 记录续费。</div>
       </section>
-      <div class="sub-bottom-tip"><span>✦</span> DEV3 · 月度/年度预测、续费日历、续费历史。私人备份仅通过 SSH 管理，不向公网提供下载。</div>
+      <div class="sub-bottom-tip"><span>✦</span> DEV3 · 月度/年度预测、续费日历、续费历史。私人备份仅通过本地管理菜单处理，不向公网提供下载。</div>
     </div>
   </main>
 </div>

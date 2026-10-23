@@ -37,6 +37,21 @@ printf '0\n' | docker compose -f "$base/compose.yaml" exec -T server \
   /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock \
   > /tmp/miniprobe-docker-smoke-manager.txt
 grep -q 'MiniProbe' /tmp/miniprobe-docker-smoke-manager.txt
+# Exercise Docker menu 15 -> 6 against disposable CI data and verify that the
+# hashed owner password survives a full container recreation.
+printf '15\n6\nci-only-private-password-1234\nci-only-private-password-1234\n0\n0\n' |
+  docker compose -f "$base/compose.yaml" exec -T server \
+    /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock \
+    > /tmp/miniprobe-docker-smoke-subscription.txt
+grep -q '密码已设置' /tmp/miniprobe-docker-smoke-subscription.txt
+sudo test -s "$base/data/subscriptions.json"
+[ "$(sudo stat -c %a "$base/data/subscriptions.json")" = 600 ]
+if sudo grep -q 'ci-only-private-password-1234' "$base/data/subscriptions.json"; then
+  echo 'Subscription password must not be stored as plaintext' >&2
+  exit 1
+fi
+docker compose -f "$base/compose.yaml" up -d --force-recreate --wait server
+curl -fsS --max-time 5 http://127.0.0.1:28888/api/v1/subscriptions/session | grep -q '"enabled":true'
 # Container menu 13 must request a fixed host handoff; it cannot upgrade Docker itself.
 set +e
 printf '13\n' | docker compose -f "$base/compose.yaml" exec -T server \
