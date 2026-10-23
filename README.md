@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发目标：`v0.4.32-alpha`（Docker Server 菜单 13 的宿主机安全升级接管）；上一版：`v0.4.31-alpha`
+当前开发目标：`v0.4.33-alpha`（Docker 菜单 8 Tunnel 宿主机安全管理）；上一版：`v0.4.32-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -10,15 +10,15 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 >
 > 存储目标：MiniProbe 自身持久化数据有明确上限，不把 1 秒遥测永久写盘；长期运行也不能因为“运行时间越久”无限增长。硬预算为 `2 GiB`。
 
-## Docker Server DEV1（开发中，待验证）
+## Docker Server（已发布）
 
-针对与 HomeSphere 共用同一台 VPS 的场景，已建立独立 MiniProbe Server Docker Compose 实现（详情见 [Docker 开发与迁移指南](docs/docker-server-dev1.md)）。
+针对与其他项目共用 VPS 的场景，提供独立 MiniProbe Server Docker Compose 实现（详情见 [Docker 开发与迁移指南](docs/docker-server-dev1.md)）。
 
 - 隔离 Compose 项目、数据目录与网络，不使用 Docker Socket 或特权容器。
 - 仅将 Server 的 28888 端口绑定到宿主机 127.0.0.1；可选独立 Cloudflare Tunnel 容器仍走本机回环。
-- 容器内保留 Unix Socket SSH 管理菜单；禁用会修改宿主机 systemd 的网络切换和二进制自更新功能。
+- 容器内保留 Unix Socket SSH 管理菜单；菜单 8（Cloudflare Tunnel）和菜单 13（Server 升级）通过宿主机受限接管，不允许容器使用 Docker Socket 或任意命令。
 - 不改变原有 Agent / Snell / SS2022 / Xray；迁移须保留旧 Server 数据库、签名身份与原接入域名。
-- 当前仍为 PR 开发功能，**GHCR 需要合并后显式触发发布，不会自动生成镜像**。原生 systemd/OpenRC 安装方式保持不变。
+- GHCR 随 Docker 部署文件或版本发布自动构建；仍需在宿主机明确确认升级并校验健康。原生 systemd/OpenRC 安装方式保持不变。
 
 ---
 
@@ -829,3 +829,10 @@ MiniProbe 内部使用 `2036-01-01` 作为兼容标记，Dashboard 显示为 `�
 - 现有 VPS 费用、币种、到期日期直接从节点配置读取，绝不二次录入；私有订阅存储于独立的 0600 JSON 文件。
 - Server 版本为 `0.4.29-alpha`，**目标 Agent 仍是 `0.4.28-alpha`**，升级 Server 不要求升级 Agent。
 - 使用细则见 `docs/subscriptions-dev1.md`。到期 Telegram 提醒是 DEV2，费用/日历/备份统计是 DEV3，未包含在本版。
+
+
+### Docker 菜单 8：安全访问 / Cloudflare Tunnel
+
+在宿主机执行 `sh /opt/miniprobe-docker/manage.sh menu`，选择 **8**：
+`1` 查看状态、`2` 启动、`3` 停止、`0` 返回。
+容器不会获得 Docker Socket。宿主机要求启动输入 `START`，停止输入 `STOP`；停止可能使 Dashboard 与 Agent 失联，不会自动切换成公网 HTTP。状态查询仅能证明本机运行情况，不能代替公网 HTTPS / Agent 验证。使用本功能需要同时更新 Docker Server 镜像和宿主机 `manage.sh`。
