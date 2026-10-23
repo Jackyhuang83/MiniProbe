@@ -26,9 +26,10 @@ RUN apk add --no-cache ca-certificates \
     && chmod 0700 /var/lib/miniprobe /run/miniprobe
 COPY --from=builder --chmod=0755 /out/miniprobe-server /usr/local/bin/miniprobe-server
 COPY --from=builder --chmod=0755 /out/downloads/ /opt/miniprobe/downloads/
+COPY --chmod=0755 deploy/docker/entrypoint.sh /usr/local/bin/miniprobe-entrypoint
 USER 10001:10001
 ENV MINIPROBE_DEPLOYMENT=docker
 EXPOSE 28888
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD wget -q -O /dev/null http://127.0.0.1:28888/healthz || exit 1
-ENTRYPOINT ["/usr/local/bin/miniprobe-server"]
+ENTRYPOINT ["/usr/local/bin/miniprobe-entrypoint"]
 CMD ["--listen", ":28888", "--data-dir", "/var/lib/miniprobe", "--downloads", "/opt/miniprobe/downloads", "--admin-socket", "/run/miniprobe/admin.sock"]
