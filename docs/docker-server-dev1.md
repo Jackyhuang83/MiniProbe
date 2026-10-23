@@ -23,7 +23,7 @@
 - .github/workflows/validate-miniprobe-docker.yml：PR 容器烟测，不推送镜像。
 - .github/workflows/docker-miniprobe.yml：合并或手动触发时向 GHCR 发布多架构镜像。
 
-GHCR 预期提供开发标签 ghcr.io/jackyhuang83/miniprobe-server:docker-dev1，以及固定提交标签 ghcr.io/jackyhuang83/miniprobe-server:sha-<commit>。发布前尚不存在对应的镜像；不能在 CI 通过前认定可用。正式迁移建议将 .env 中 MINIPROBE_IMAGE 固定为已验证的 sha 标签或 digest，避免 latest 意外更新。GHCR 包可能默认是 Private，需检查访问权限；不得向聊天或 GitHub 仓库上传令牌。
+GHCR 仅在人工触发发布后提供开发标签 ghcr.io/jackyhuang83/miniprobe-server:docker-dev1，以及固定提交标签 ghcr.io/jackyhuang83/miniprobe-server:sha-<commit>。发布前尚不存在对应的镜像；不能在 CI 通过前认定可用。正式迁移建议将 .env 中 MINIPROBE_IMAGE 固定为已验证的 sha 标签或 digest，避免 latest 意外更新。GHCR 包可能默认是 Private，需检查访问权限；不得向聊天或 GitHub 仓库上传令牌。
 
 ## 迁移前读取新 VPS 环境
 
