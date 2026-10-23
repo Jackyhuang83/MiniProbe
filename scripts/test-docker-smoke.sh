@@ -46,6 +46,18 @@ menu13_status=$?
 set -e
 [ "$menu13_status" -eq 73 ] || { echo "Docker menu 13 must return handoff status 73" >&2; exit 1; }
 grep -q 'Docker Server 更新由宿主机管理脚本执行' /tmp/miniprobe-docker-smoke-menu13.txt
+# Tunnel menu 8 must only return a fixed handoff status, never host privileges.
+for spec in '1:74' '2:75' '3:76' '0:0'; do
+  choice=${spec%:*}
+  expected=${spec#*:}
+  set +e
+  printf '8\n%s\n0\n' "$choice" | docker compose -f "$base/compose.yaml" exec -T server \
+    /usr/local/bin/miniprobe-server --manage --admin-socket /run/miniprobe/admin.sock \
+    > /tmp/miniprobe-docker-smoke-menu8.txt
+  rc=$?
+  set -e
+  [ "$rc" -eq "$expected" ] || { echo "Menu 8 choice $choice: expected $expected, got $rc" >&2; exit 1; }
+done
 docker compose -f "$base/compose.yaml" stop server
 sudo test -s "$base/data/miniprobe.json"
 echo 'MiniProbe Docker container smoke test passed'
