@@ -42,7 +42,7 @@ GHCR 预期提供开发标签 ghcr.io/jackyhuang83/miniprobe-server:docker-dev1�
 2. 加密/受保护通道传送整个 /var/lib/miniprobe/ 到新 VPS 独立目录下的 data/。必须包括 miniprobe.json、subscriptions.json、network-history/、traffic-history/ 及 subscription-backups/。miniprobe.json 内含签名密钥和 Agent 身份信息，不能遗漏，也不能公开。
 3. 在新 VPS 独立目录存放 compose.yaml、compose.tunnel.yaml、manage.sh、.env；不得复制 HomeSphere 的 Compose 文件。复制 .env.example 并设置经验证的镜像引用，不在 .env 写任何 Token。新 VPS data/ 必须由 UID 10001 持有，可在宿主机 root 下执行 chown -R 10001:10001 data；data/ 0700，敏感 JSON 0600。
 4. 在新 VPS 独立目录运行 sh manage.sh start，再运行 sh manage.sh menu 核对节点和订阅中心。这一步不启用新公网 Tunnel，且旧 Server 不得同时运行。
-5. 如果原 MiniProbe 使用 Cloudflare Remotely-managed Tunnel，保留现有访问域名和远端 Hostname Service http://127.0.0.1:28888；仅将旧 MiniProbe 专用 Tunnel Token 安全转移到新 VPS 的 secrets/cloudflared.token 中。其所在 secrets/ 目录只允许 root 访问。确认已停止旧 VPS 的 MiniProbe Tunnel 后，在新 VPS 执行 sh manage.sh tunnel-start。绝不使用 HomeSphere 的 Tunnel Token。
+5. 如果原 MiniProbe 使用 Cloudflare Remotely-managed Tunnel，保留现有访问域名和远端 Hostname Service http://127.0.0.1:28888；仅将旧 MiniProbe 专用 Tunnel Token 安全转移到新 VPS 的 secrets/cloudflared.token 中。其所在 secrets/ 目录权限设为 0700，Token 文件属主 UID/GID 10001:10001、权限 0600，便于非 root cloudflared 读取。可在宿主机 root 下执行 chown 10001:10001 secrets/cloudflared.token 和 chmod 0600 secrets/cloudflared.token。确认已停止旧 VPS 的 MiniProbe Tunnel 后，在新 VPS 执行 sh manage.sh tunnel-start。绝不使用 HomeSphere 的 Tunnel Token。
 6. 检查公网 HTTPS /healthz、节点在线、流量历史、订阅独立 HTTPS 登录和 Telegram。HomeSphere 原有直播、Emby、115 功能不得受到影响。
 7. 失败时先停止新 Tunnel 和 Server，再恢复旧 VPS 服务。若新 Server 已写入较新数据，恢复前应保存并核对其变化，不能用旧快照覆盖后声称无数据损失。不要立刻销毁旧 VPS。
 
