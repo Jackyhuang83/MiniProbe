@@ -53,6 +53,11 @@ type subscriptionStore struct {
  Version int `json:"version"`
  OwnerPassword passwordConfig `json:"owner_password"`
  Items []subscriptionRecord `json:"items"`
+ Renewals []subscriptionRenewalEvent `json:"renewals,omitempty"`
+ RemindersEnabled bool `json:"reminders_enabled,omitempty"`
+ ReminderDays []int `json:"reminder_days,omitempty"`
+ ReminderOverrides map[string][]int `json:"reminder_overrides,omitempty"`
+ Receipts []subscriptionReminderReceipt `json:"reminder_receipts,omitempty"`
 }
 type subscriptionView struct {
  subscriptionRecord
@@ -144,12 +149,14 @@ func (s *server) loadSubscriptions() error {
   ids[item.ID]=true
   if _,err:=validateSubscription(item);err!=nil{return fmt.Errorf("订阅文件无效: %w",err)}
  }
+ if err:=validateSubscriptionDev2(store);err!=nil{return fmt.Errorf("订阅 DEV2 数据无效: %w",err)}
  if store.Items==nil{store.Items=[]subscriptionRecord{}}
  s.subscriptions=store
  return nil
 }
 func (s *server) saveSubscriptionsLocked(store subscriptionStore) error {
  store.Version=1
+ if err:=validateSubscriptionDev2(store);err!=nil{return err}
  b,err:=json.MarshalIndent(store,"","  ");if err!=nil{return err}
  if len(b)>subscriptionFileLimit{return errors.New("订阅存储超过 1 MiB 限制")}
  path:=s.subscriptionPath()
@@ -204,7 +211,7 @@ func (s *server) localSubscriptions(w http.ResponseWriter,r *http.Request) {
  noStore(w)
  switch r.Method {
  case http.MethodGet:
-  writeJSON(w,http.StatusOK,map[string]any{"items":s.subscriptionSnapshot()})
+  writeJSON(w,http.StatusOK,s.subscriptionOwnerData())
  case http.MethodPost,http.MethodPut:
   var rec subscriptionRecord
   if err:=decodeJSON(w,r,&rec);err!=nil{http.Error(w,"JSON 无效",400);return}
@@ -325,7 +332,9 @@ func (s *server) subscriptionRead(w http.ResponseWriter,r *http.Request) {
  noStore(w)
  if r.Method!=http.MethodGet{http.Error(w,"read-only",405);return}
  if !requestIsTLS(r)||!s.hasSubscriptionSession(r){http.Error(w,"unauthorized",401);return}
- writeJSON(w,200,map[string]any{"items":s.subscriptionSnapshot(),"server_date":time.Now().UTC().Format("2006-01-02")})
+ data:=s.subscriptionOwnerData()
+ data["server_date"]=time.Now().UTC().Format("2006-01-02")
+ writeJSON(w,200,data)
 }
 
 // parseCurrencyMinor accepts exact decimal user input; floating point is never
