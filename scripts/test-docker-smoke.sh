@@ -10,6 +10,7 @@ chmod 0700 "$base/data" "$base/secrets"
 sudo chown 10001:10001 "$base/data"
 printf 'ci-test-fake-token\n' > "$base/secrets/cloudflared.token"
 chmod 0600 "$base/secrets/cloudflared.token"
+sudo chown 10001:10001 "$base/secrets/cloudflared.token"
 export MINIPROBE_IMAGE="$image"
 cleanup() {
   docker compose -f "$base/compose.yaml" down --remove-orphans || true
