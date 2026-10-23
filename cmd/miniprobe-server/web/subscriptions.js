@@ -77,8 +77,8 @@
     const total=el("div","sub-card-price",price(item));
     total.append(el("small","",item.currency?" "+item.currency:""));
     const priceRow=el("div","sub-price-row");
-    const badge=billingBadge(item);
-    priceRow.append(total,el("span","sub-cycle-badge "+badge.style,badge.label));
+    const billingTag=billingBadge(item);
+    priceRow.append(total,el("span","sub-cycle-badge "+billingTag.style,billingTag.label));
     node.append(priceRow);
     if(item.source==="vps") node.append(el("div","sub-cycle-note","节点月租金额 · 实际扣费周期未设置"));
     const days=daysUntil(item.due_date,item.time_zone);
