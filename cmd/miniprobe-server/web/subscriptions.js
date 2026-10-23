@@ -244,7 +244,7 @@
   });
   for(const id of ["subQuery","subCategory","subStatus"])$(id).addEventListener(id==="subQuery"?"input":"change",render);
   const currentYear=new Date().getFullYear();
-  for(let y=currentYear-1;y<=currentYear+2;y++){$("subYear").append(el("option","",y));$("subYear").lastChild.value=String(y);}
+  for(let y=currentYear-1;y<=currentYear+2;y++){const option=el("option","",y);option.value=String(y);$("subYear").append(option);}
   $("subYear").value=String(currentYear);
   $("subCalendarMonth").value=String(new Date().getMonth()+1);
   for(const id of ["subYear","subCalendarMonth"])$(id).addEventListener("change",renderInsights);
