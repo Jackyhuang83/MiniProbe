@@ -13,7 +13,7 @@ MAX_BACKUP_BYTES=$((1024 * 1024 * 1024)) # 1 GiB limit across retained archives
 
 fail() { printf '[错误] %s\n' "$*" >&2; exit 1; }
 [ "$(id -u)" -eq 0 ] || fail "请用 root 运行备份"
-for command in docker tar cp gzip sha256sum flock python3 du df find stat; do
+for command in docker tar cp gzip sha256sum flock python3 du df find stat awk sort date mktemp install grep timeout; do
   command -v "$command" >/dev/null 2>&1 || fail "缺少依赖: $command"
 done
 
@@ -30,8 +30,8 @@ for file in .env compose.yaml compose.tunnel.yaml manage.sh; do
 done
 [ ! -e "$MARKER" ] || fail "检测到未清除的暂停标记；请先核对 Server 状态"
 
-install -d -m 0700 "$BACKUPS"
 [ ! -L "$BACKUPS" ] || fail "备份目录不允许为符号链接"
+install -d -m 0700 "$BACKUPS"
 chmod 0700 "$BACKUPS"
 
 # Require enough space for an uncompressed snapshot, compressed archive, and margin.
@@ -77,7 +77,7 @@ chmod 0600 "$WORK/secrets/cloudflared.token"
 printf '%s\n' "$CID" > "$MARKER"
 chmod 0600 "$MARKER"
 docker pause "$CID" >/dev/null
-cp -a -- "$BASE/data" "$WORK/data"
+timeout 20s cp -a -- "$BASE/data" "$WORK/data"
 docker unpause "$CID" >/dev/null
 rm -f "$MARKER"
 
@@ -100,7 +100,7 @@ tar -C "$WORK" -czf "$ARCHIVE_PART" \
   data secrets .env compose.yaml compose.tunnel.yaml manage.sh
 gzip -t "$ARCHIVE_PART"
 tar -tzf "$ARCHIVE_PART" >/dev/null
-tar -tzf "$ARCHIVE_PART" | grep -qx 'data/miniprobe.json' ||
+tar -tzf "$ARCHIVE_PART" | grep -x 'data/miniprobe.json' >/dev/null ||
   fail "压缩包缺少数据库"
 chmod 0600 "$ARCHIVE_PART"
 mv -n -- "$ARCHIVE_PART" "$BACKUPS/$NAME"
