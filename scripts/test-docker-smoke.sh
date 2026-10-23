@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-base="$PWD/deploy/docker"
+# CI only: refuse to touch any real VPS deployment data.
+[ "${GITHUB_ACTIONS:-}" = true ] || { echo "Docker smoke tests may only run on GitHub Actions" >&2; exit 2; }
+base=$(mktemp -d)
+cp "$PWD/deploy/docker/compose.yaml" "$PWD/deploy/docker/compose.tunnel.yaml" "$base/"
 image="miniprobe-server:ci"
 mkdir -p "$base/data" "$base/secrets"
 chmod 0700 "$base/data" "$base/secrets"
@@ -10,7 +13,7 @@ chmod 0600 "$base/secrets/cloudflared.token"
 export MINIPROBE_IMAGE="$image"
 cleanup() {
   docker compose -f "$base/compose.yaml" down --remove-orphans || true
-  rm -rf "$base/data" "$base/secrets"
+  sudo rm -rf "$base"
 }
 trap cleanup EXIT
 docker compose -f "$base/compose.yaml" -f "$base/compose.tunnel.yaml" --profile tunnel config --quiet
