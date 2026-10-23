@@ -151,3 +151,28 @@ func TestSubscriptionDEV2OwnerDataNotPublic(t *testing.T){
  s.subscriptionRead(w,httptest.NewRequest("POST","https://test.example/api/v1/subscriptions",strings.NewReader("{}")))
  if w.Code!=405{t.Fatal("public write endpoint opened")}
 }
+
+func TestSubscriptionDEV2StoreV1MigrationAndFailClosed(t *testing.T){
+ s:=subscriptionTestServer(t)
+ rec:=sampleSubscription();rec.ID="sub-old"
+ old:=subscriptionStore{Version:1,Items:[]subscriptionRecord{rec}}
+ payload,err:=json.Marshal(old);if err!=nil{t.Fatal(err)}
+ if err:=os.WriteFile(s.subscriptionPath(),payload,0600);err!=nil{t.Fatal(err)}
+ if err:=s.loadSubscriptions();err!=nil{t.Fatal("v1 must load safely",err)}
+ if s.subscriptions.Version!=1{t.Fatal("v1 changed before writing")}
+ s.subscriptionMu.Lock()
+ err=s.saveSubscriptionsLocked(s.subscriptions)
+ s.subscriptionMu.Unlock()
+ if err!=nil{t.Fatal(err)}
+ if s.subscriptions.Version!=2{t.Fatal("DEV2 write must upgrade store to v2")}
+ v2,err:=os.ReadFile(s.subscriptionPath());if err!=nil{t.Fatal(err)}
+ var stored subscriptionStore
+ if err:=json.Unmarshal(v2,&stored);err!=nil{t.Fatal(err)}
+ if stored.Version!=2{t.Fatal("persisted version is not 2")}
+ next:=subscriptionTestServer(t);next.dataFile=s.dataFile
+ if err:=next.loadSubscriptions();err!=nil{t.Fatal("v2 must load",err)}
+ stored.Version=3
+ bad,_:=json.Marshal(stored)
+ if err:=os.WriteFile(s.subscriptionPath(),bad,0600);err!=nil{t.Fatal(err)}
+ if err:=next.loadSubscriptions();err==nil{t.Fatal("unknown version must fail closed")}
+}
