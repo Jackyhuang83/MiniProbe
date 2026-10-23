@@ -111,13 +111,16 @@ func promptSubscriptionFields(r *bufio.Reader,old *subscriptionRecord)(subscript
 }
 func manageSubscriptions(r *bufio.Reader,c *localClient){
  for{
-  fmt.Println("\n========== 订阅管理中心 · DEV1 ==========")
+  fmt.Println("\n========== 订阅管理中心 · DEV2 ==========")
   fmt.Println(" 1. 查看全部订阅（含自动关联 VPS）")
   fmt.Println(" 2. 新增订阅")
   fmt.Println(" 3. 编辑订阅")
   fmt.Println(" 4. 暂停 / 取消 / 恢复 / 标记到期")
   fmt.Println(" 5. 删除订阅（需确认）")
   fmt.Println(" 6. 设置/更换私有网页访问密码")
+  fmt.Println(" 7. 查看 / 记录续费（含 VPS 记录）")
+  fmt.Println(" 8. Telegram 到期提醒（默认关闭）")
+  fmt.Println(" 9. 单条订阅提醒设置")
   fmt.Println(" 0. 返回主菜单")
   switch prompt(r,"请选择: "){
   case "1":
@@ -156,8 +159,139 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
    p2:=promptPassword(r,"再次输入新密码: ")
    if p!=p2{fmt.Println("两次输入不一致。");continue}
    if err:=c.request(http.MethodPut,"/v1/subscriptions/password",map[string]string{"password":p},nil);err!=nil{fmt.Println("修改失败:",err)}else{fmt.Println("密码已设置；旧订阅网页会话即刻失效。")}
+  case "7":manageSubscriptionRenewals(r,c)
+  case "8":manageSubscriptionReminders(r,c)
+  case "9":manageSubscriptionOverride(r,c)
   case "0":return
   default:fmt.Println("无效选项。")
   }
  }
+}
+
+
+type localSubscriptionOverview struct {
+ Items []subscriptionView `json:"items"`
+ Renewals []subscriptionRenewalEvent `json:"renewals"`
+ Reminders subscriptionReminderConfig `json:"reminders"`
+}
+func getSubscriptionOverview(c *localClient)(localSubscriptionOverview,error) {
+ var out localSubscriptionOverview
+ err:=c.request(http.MethodGet,"/v1/subscriptions",nil,&out)
+ return out,err
+}
+func pickSubscription(r *bufio.Reader,items []subscriptionView)(subscriptionView,bool){
+ printSubscriptions(items)
+ idx,err:=strconv.Atoi(prompt(r,"订阅编号（回车取消）: "))
+ if err!=nil||idx<1||idx>len(items){fmt.Println("已取消。");return subscriptionView{},false}
+ return items[idx-1],true
+}
+func parseReminderMenuDays(input string)([]int,error){
+ input=strings.ReplaceAll(input,"，",",")
+ var days []int
+ if strings.TrimSpace(input)==""{return []int{},nil}
+ for _,raw:=range strings.Split(input,","){
+  token:=strings.TrimSpace(raw)
+  if token==""{return nil,fmt.Errorf("提醒天数不能留空")}
+  n,err:=strconv.Atoi(token);if err!=nil{return nil,fmt.Errorf("提醒天数须为整数")}
+  days=append(days,n)
+ }
+ if err:=validateReminderDays(days);err!=nil{return nil,err}
+ return days,nil
+}
+func reminderDaysText(days []int)string{
+ var vals []string
+ for _,day:=range days{if day==-1{vals=append(vals,"逾期一次")}else{vals=append(vals,fmt.Sprintf("提前 %d 天",day))}}
+ if len(vals)==0{return "不提醒"}
+ return strings.Join(vals,"、")
+}
+func manageSubscriptionRenewals(r *bufio.Reader,c *localClient){
+ overview,err:=getSubscriptionOverview(c);if err!=nil{fmt.Println("读取失败:",err);return}
+ fmt.Println("
+========== 续费历史 ==========")
+ if len(overview.Renewals)==0{fmt.Println("尚无续费记录。")}else{
+  max:=len(overview.Renewals);if max>15{max=15}
+  for _,event:=range overview.Renewals[:max]{
+   name:=event.SubscriptionID
+   for _,item:=range overview.Items{if item.ID==event.SubscriptionID{name=item.Name;break}}
+   fmt.Printf("%s · %s · %s %s",event.Date,name,formatCurrencyMinor(event.AmountMinor,event.Currency),event.Currency)
+   if event.NewDueDate!=""{fmt.Printf(" · 新到期日 %s",event.NewDueDate)}
+   fmt.Println()
+  }
+  if len(overview.Renewals)>max{fmt.Printf("显示最近 %d/%d 条（完整历史保存在私有账本）。
+",max,len(overview.Renewals))}
+ }
+ if strings.ToUpper(prompt(r,"输入 ADD 新增一条续费记录（回车返回）: "))!="ADD"{return}
+ item,ok:=pickSubscription(r,overview.Items);if !ok{return}
+ now:=time.Now().In(time.FixedZone("JST",9*3600)).Format("2006-01-02")
+ date:=promptSubDefault(r,"实际续费日期 YYYY-MM-DD",now)
+ if !validSubscriptionDate(date){fmt.Println("日期无效");return}
+ currency:=item.Currency;if currency==""{currency="USD"}
+ cur:=strings.ToUpper(promptSubDefault(r,"实际支付币种",currency))
+ amount:=promptSubDefault(r,"实际支付金额",formatCurrencyMinor(item.AmountMinor,currency))
+ if cur!=currency{
+  amount=prompt(r,"币种变化，请重新输入实际支付金额: ")
+ }
+ minor,err:=parseCurrencyMinor(amount,cur)
+ if err!=nil{fmt.Println("金额无效:",err);return}
+ due:=""
+ if item.Source=="manual"&&item.Cycle!="long_term"{
+  fmt.Printf("当前到期日：%s
+",item.DueDate)
+  due=prompt(r,"续费后新到期日 YYYY-MM-DD（留空不修改）: ")
+  if due!=""&&!validSubscriptionDate(due){fmt.Println("新到期日无效");return}
+ }else if item.Source=="vps"{fmt.Println("VPS 的到期日需到「修改节点」调整，续费历史不会修改原节点。")}
+ notes:=prompt(r,"备注（可留空，勿填密码/Token）: ")
+ if strings.ToUpper(prompt(r,"确认追加不可编辑的续费记录？输入 ADD: "))!="ADD"{fmt.Println("已取消");return}
+ payload:=subscriptionRenewalInput{SubscriptionID:item.ID,Date:date,AmountMinor:minor,Currency:cur,NewDueDate:due,Notes:notes}
+ if err=c.request(http.MethodPost,"/v1/subscriptions/renewals",payload,nil);err!=nil{fmt.Println("保存失败:",err)}else{fmt.Println("续费记录已保存。")}
+}
+func manageSubscriptionReminders(r *bufio.Reader,c *localClient){
+ overview,err:=getSubscriptionOverview(c);if err!=nil{fmt.Println("读取失败:",err);return}
+ cfg:=overview.Reminders
+ fmt.Printf("
+========== Telegram 订阅提醒 ==========
+当前：%s
+提醒阶段：%s
+",map[bool]string{true:"启用",false:"关闭"}[cfg.Enabled],reminderDaysText(cfg.Days))
+ fmt.Println("提醒复用现有 Telegram 设置，但订阅提醒默认关闭，不会自动扣款。")
+ fmt.Println("1. 启用提醒")
+ fmt.Println("2. 关闭提醒")
+ fmt.Println("3. 修改提醒天数（例：30,7,3,1,0,-1，-1 表示逾期一次）")
+ choice:=prompt(r,"请选择（回车返回）: ")
+ switch choice{
+ case "1","2":
+  if promptSelection:=prompt(r,"确认修改？输入 YES: ");promptSelection!="YES"{fmt.Println("已取消");return}
+  fresh,e:=getSubscriptionOverview(c);if e!=nil{fmt.Println("读取失败:",e);return}
+  next:=subscriptionReminderConfig{Enabled:choice=="1",Days:fresh.Reminders.Days}
+  if err:=c.request(http.MethodPut,"/v1/subscriptions/reminders",next,nil);err!=nil{fmt.Println("保存失败:",err)}else{fmt.Println("已保存。")}
+ case "3":
+  raw:=prompt(r,"提醒天数（逗号分隔，-1=逾期；输入 - 表示不提醒）: ")
+  if raw=="-"{raw=""}
+  days,e:=parseReminderMenuDays(raw);if e!=nil{fmt.Println("输入无效:",e);return}
+  if err:=c.request(http.MethodPut,"/v1/subscriptions/reminders",subscriptionReminderConfig{Enabled:cfg.Enabled,Days:days},nil);err!=nil{fmt.Println("保存失败:",err)}else{fmt.Println("提醒阶段已更新。")}
+ default:fmt.Println("已返回。")
+ }
+}
+func manageSubscriptionOverride(r *bufio.Reader,c *localClient){
+ overview,err:=getSubscriptionOverview(c);if err!=nil{fmt.Println("读取失败:",err);return}
+ item,ok:=pickSubscription(r,overview.Items);if !ok{return}
+ fmt.Printf("
+订阅：%s
+全局阶段：%s
+",item.Name,reminderDaysText(overview.Reminders.Days))
+ fmt.Println("1. 继承全局提醒")
+ fmt.Println("2. 关闭本条订阅的提醒")
+ fmt.Println("3. 使用单独的提醒阶段")
+ choice:=prompt(r,"请选择: ")
+ payload:=map[string]any{"subscription_id":item.ID}
+ switch choice{
+ case "1":payload["mode"]="inherit"
+ case "2":payload["mode"]="off"
+ case "3":
+  days,err:=parseReminderMenuDays(prompt(r,"提醒阶段（例 7,1,0,-1）: "))
+  if err!=nil||len(days)==0{fmt.Println("自定义阶段无效");return}
+  payload["mode"]="custom";payload["days"]=days
+ default:fmt.Println("已取消");return
+ }
+ if err:=c.request(http.MethodPut,"/v1/subscriptions/reminder-override",payload,nil);err!=nil{fmt.Println("保存失败:",err)}else{fmt.Println("本条订阅提醒设置已保存。")}
 }
