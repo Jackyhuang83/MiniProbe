@@ -223,6 +223,7 @@ type server struct {
 	mu           sync.RWMutex
 	db           database
 	subscriptionMu sync.RWMutex
+	subscriptionReminderRunMu sync.Mutex
 	subscriptions subscriptionStore
 	secret       []byte
 	dataFile     string
@@ -340,6 +341,7 @@ func main() {
 
 	go s.persistenceLoop()
 	go s.notificationLoop()
+	go s.subscriptionReminderLoop()
 	go s.offlineMonitorLoop()
 	go s.trafficSummaryLoop()
 	go s.networkHistoryLoop()
@@ -1108,6 +1110,9 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/nodes", s.localNodes)
 	mux.HandleFunc("/v1/subscriptions", s.localSubscriptions)
 	mux.HandleFunc("/v1/subscriptions/password", s.localSubscriptionPassword)
+	mux.HandleFunc("/v1/subscriptions/renewals", s.localSubscriptionRenewals)
+	mux.HandleFunc("/v1/subscriptions/reminders", s.localSubscriptionReminders)
+	mux.HandleFunc("/v1/subscriptions/reminder-override", s.localSubscriptionOverride)
 	mux.HandleFunc("/v1/node-command", s.localNodeCommand)
 	mux.HandleFunc("/v1/agent-upgrade", s.localAgentUpgrade)
 	mux.HandleFunc("/v1/route-baseline", s.localRouteBaseline)
