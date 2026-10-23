@@ -18,7 +18,7 @@
       <a href="/ui/0.4.29-alpha/"><span>▦</span> 监控 Dashboard</a>
       <a href="/ui/0.4.29-alpha/traffic.html"><span>↗</span> 流量统计</a>
     </nav>
-    <div class="sub-side-note">DEV1 · 只读网页<br>新增、编辑和删除请在 Server SSH 菜单操作。</div>
+    <div class="sub-side-note">DEV2 · 只读网页<br>订阅与续费管理、提醒设置请在 Server SSH 菜单操作。</div>
   </aside>
   <main class="sub-main">
     <header class="sub-top">
@@ -60,7 +60,13 @@
         <div id="subCards" class="sub-cards"></div>
         <div id="subEmpty" class="sub-empty hidden">没有符合条件的订阅。<br>请通过 SSH 管理菜单新增，或检查筛选条件。</div>
       </section>
-      <div class="sub-bottom-tip"><span>✦</span> 订阅费用不作未经确认的跨币种换算。提醒、续费历史、统计与日历将在 DEV2 / DEV3 增加。</div>
+      <section class="sub-panel sub-history-panel" id="sub-history">
+        <div class="sub-section-title"><div><h2>最近续费记录</h2><p>历史只追加，不允许网页修改；按实际支付币种展示</p></div></div>
+        <div id="subReminderState" class="sub-reminder-state"></div>
+        <div id="subRenewalHistory" class="sub-history-list"></div>
+        <div id="subRenewalEmpty" class="sub-empty">暂无续费历史。通过 SSH 菜单 15 → 7 记录续费。</div>
+      </section>
+      <div class="sub-bottom-tip"><span>✦</span> DEV2 · 续费历史与可选 Telegram 到期提醒。跨币种统计、日历及备份将在 DEV3 开发。</div>
     </div>
   </main>
 </div>
