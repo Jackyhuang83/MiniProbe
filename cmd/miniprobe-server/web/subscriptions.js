@@ -237,7 +237,7 @@
   }
   function minorFromInput(value,currency){
     const raw=String(value).trim();
-    if(!/^\\d{1,10}(\\.\\d{1,3})?$/.test(raw))throw new Error("金额只能输入非负数字，最多三位小数。");
+    if(!/^\d{1,10}(\.\d{1,3})?$/.test(raw))throw new Error("金额只能输入非负数字，最多三位小数。");
     const [whole,part=""]=raw.split(".");
     const digits=decimal(currency);
     if(part.length>digits)throw new Error(currency+" 最多支持 "+digits+" 位小数。");
