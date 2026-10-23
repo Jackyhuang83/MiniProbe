@@ -23,8 +23,12 @@ docker run --rm --user "10001:10001" \
   --init-only --data-dir /var/lib/miniprobe \
   --downloads /opt/miniprobe/downloads \
   --public-url "https://probe.example.invalid" --dashboard-mode public
-test -s "$base/data/miniprobe.json"
-docker compose -f "$base/compose.yaml" up -d --wait server
+sudo test -s "$base/data/miniprobe.json"
+if ! docker compose -f "$base/compose.yaml" up -d --wait server; then
+  docker compose -f "$base/compose.yaml" ps || true
+  docker compose -f "$base/compose.yaml" logs --tail=100 server || true
+  exit 1
+fi
 curl -fsS --max-time 5 http://127.0.0.1:28888/healthz | grep -q '^ok$'
 docker compose -f "$base/compose.yaml" exec -T server \
   sh -ec 'test "$(id -u)" = 10001 && test -S /run/miniprobe/admin.sock && test "$(stat -c %a /run/miniprobe/admin.sock)" = 600'
@@ -33,5 +37,5 @@ printf '0\n' | docker compose -f "$base/compose.yaml" exec -T server \
   > /tmp/miniprobe-docker-smoke-manager.txt
 grep -q 'MiniProbe' /tmp/miniprobe-docker-smoke-manager.txt
 docker compose -f "$base/compose.yaml" stop server
-test -s "$base/data/miniprobe.json"
+sudo test -s "$base/data/miniprobe.json"
 echo 'MiniProbe Docker container smoke test passed'
