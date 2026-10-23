@@ -3,6 +3,8 @@
   const api = "/api/v1/subscriptions";
   const $ = id => document.getElementById(id);
   let items = [];
+  let renewals = [];
+  let reminderConfig = {enabled:false,days:[]};
   const categoryText = {vps:"VPS",video:"影视 / IPTV",ai:"AI 服务",domain:"域名 / 云服务",software:"软件 / App",other:"其他订阅"};
   const categoryIcon = {vps:"▣",video:"▶",ai:"✧",domain:"◎",software:"▦",other:"◇"};
   const statusText = {active:"有效",paused:"已暂停",cancelled:"已取消",expired:"已到期"};
@@ -97,6 +99,21 @@
     node.append(el("div","sub-meta",meta));
     return node;
   }
+  function renderRenewals() {
+    $("subReminderState").textContent = reminderConfig.enabled ? "到期提醒：已开启 · "+reminderConfig.days.map(x=>x===-1?"逾期一次":x===0?"当天":x+" 天前").join("、") : "到期提醒：未开启（SSH 菜单 15 → 8 设置）";
+    const names=new Map(items.map(x=>[x.id,x.name]));
+    const list=$("subRenewalHistory");
+    list.replaceChildren(...renewals.slice(0,12).map(record=>{
+      const line=el("div","sub-history-row");
+      const desc=el("div","sub-history-desc");
+      desc.append(el("strong","",names.get(record.subscription_id)||"已删除的订阅"),el("small","",record.date+(record.new_due_date?" · 新到期 "+record.new_due_date:"")));
+      const amount=el("b","",price(record));
+      amount.append(el("small","",record.currency?" "+record.currency:""));
+      line.append(desc,amount);
+      return line;
+    }));
+    $("subRenewalEmpty").classList.toggle("hidden",renewals.length!==0);
+  }
   function render() {
     const q=$("subQuery").value.trim().toLocaleLowerCase();
     const cat=$("subCategory").value;
@@ -114,7 +131,9 @@
   async function load() {
     const result=await request("");
     items=Array.isArray(result.items)?result.items:[];
-    clearAlert();authView(true);render();
+    renewals=Array.isArray(result.renewals)?result.renewals:[];
+    reminderConfig=result.reminders||{enabled:false,days:[]};
+    clearAlert();authView(true);render();renderRenewals();
   }
   async function init() {
     try {
