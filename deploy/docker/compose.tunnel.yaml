@@ -1,8 +1,11 @@
 # Optional connector. Activate after stopping the old MiniProbe Tunnel.
-# Cloudflare remote-managed origin must be http://server:28888 (Docker DNS).
+# Cloudflare remote-managed origin remains http://127.0.0.1:28888.
+# Only this dedicated connector shares the MiniProbe Server network namespace;
+# requestIsTLS() still trusts X-Forwarded-Proto solely from loopback.
 services:
   cloudflared:
     image: cloudflare/cloudflared:latest
+    network_mode: service:server
     restart: unless-stopped
     profiles:
       - tunnel
