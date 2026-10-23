@@ -104,8 +104,7 @@ func TestSubscriptionDev4OwnerCRUDAndRenewal(t *testing.T) {
  w=httptest.NewRecorder();s.subscriptionWebManage(w,r)
  if w.Code!=400{t.Fatalf("VPS delete allowed: %d",w.Code)}
 
- renew:=`{"subscription_id":"`+strings.TrimPrefix(record.ID,"vps:")+ `","date":"2027-11-05","amount_minor":2399,"currency":"USD"}`
- _=renew // A forged non-existent subscription ID cannot be renewed.
+ // A forged or non-existent subscription ID cannot be renewed.
  r=dev4OwnerRequest(s,http.MethodPost,"/api/v1/subscriptions/renewals",`{"subscription_id":"missing","date":"2027-11-05","amount_minor":2399,"currency":"USD"}`)
  w=httptest.NewRecorder();s.subscriptionWebRenewal(w,r)
  if w.Code!=404{t.Fatalf("unknown renewal target accepted: %d",w.Code)}
