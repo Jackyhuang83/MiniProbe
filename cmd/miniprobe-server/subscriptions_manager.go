@@ -299,14 +299,12 @@ func manageSubscriptionBackups(r *bufio.Reader,c *localClient){
  switch choice{
  case "1":
   var result struct{Name string `json:"name"`;Bytes int `json:"bytes"`}
-  if err:=c.request(http.MethodPost,"/v1/subscriptions/backup",map[string]bool{},&result);err!=nil{fmt.Println("备份失败:",err)}else{fmt.Printf("备份成功：%s (%d 字节)
-",result.Name,result.Bytes)}
+  if err:=c.request(http.MethodPost,"/v1/subscriptions/backup",map[string]bool{},&result);err!=nil{fmt.Println("备份失败:",err)}else{fmt.Printf("备份成功：%s (%d 字节)\n",result.Name,result.Bytes)}
  case "2","3":
   var result struct{Items []string `json:"items"`}
   if err:=c.request(http.MethodGet,"/v1/subscriptions/backups",nil,&result);err!=nil{fmt.Println("读取失败:",err);return}
   if len(result.Items)==0{fmt.Println("尚无备份。");return}
-  for i,name:=range result.Items{fmt.Printf("%d. %s
-",i+1,name)}
+  for i,name:=range result.Items{fmt.Printf("%d. %s\n",i+1,name)}
   if choice=="2"{return}
   idx,err:=strconv.Atoi(prompt(r,"选择要恢复的备份编号: "))
   if err!=nil||idx<1||idx>len(result.Items){fmt.Println("无效编号。");return}
