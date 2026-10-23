@@ -5,6 +5,7 @@
 services:
   cloudflared:
     image: cloudflare/cloudflared:latest
+    user: "10001:10001"
     network_mode: service:server
     restart: unless-stopped
     profiles:
