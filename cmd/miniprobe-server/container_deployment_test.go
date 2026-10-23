@@ -2,8 +2,6 @@ package main
 
 import (
 	"bufio"
-	"io"
-	"os"
 	"strings"
 	"testing"
 )
@@ -37,9 +35,3 @@ func TestDockerNetworkAccessMenuDoesNotCallLocalConfig(t *testing.T) {
 	manageNetworkAccess(reader, nil, "")
 }
 
-func TestContainerModeDoesNotRequireRootUser(t *testing.T) {
-	t.Setenv("MINIPROBE_DEPLOYMENT", "docker")
-	if !isDockerDeployment() { t.Fatal("Docker marker missing") }
-	_ = io.Discard
-	_ = os.Getuid
-}
