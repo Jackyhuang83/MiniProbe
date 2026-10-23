@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#090d17">
+  <title>MiniProbe · 订阅管理中心</title>
+  <link rel="stylesheet" href="/ui/0.4.28-alpha/subscriptions.css">
+</head>
+<body>
+<div class="sub-shell">
+  <aside class="sub-side">
+    <a class="sub-brand" href="/ui/0.4.28-alpha/"><span class="sub-logo">M</span><span>MiniProbe<small>个人订阅中心</small></span></a>
+    <div class="sub-side-caption">工作空间</div>
+    <nav aria-label="订阅中心导航">
+      <a class="sub-nav-active" href="/ui/0.4.28-alpha/subscriptions.html"><span>◫</span> 订阅总览</a>
+      <a href="#sub-list"><span>▤</span> 我的订阅</a>
+      <a href="/ui/0.4.28-alpha/"><span>▦</span> 监控 Dashboard</a>
+      <a href="/ui/0.4.28-alpha/traffic.html"><span>↗</span> 流量统计</a>
+    </nav>
+    <div class="sub-side-note">DEV1 · 只读网页<br>新增、编辑和删除请在 Server SSH 菜单操作。</div>
+  </aside>
+  <main class="sub-main">
+    <header class="sub-top">
+      <div><div class="sub-eyebrow">PERSONAL WORKSPACE</div><h1>订阅管理中心</h1><p>掌握每一笔订阅，提前了解续费时间。</p></div>
+      <div class="sub-top-actions"><span class="sub-private">● 私有账本</span><button id="subLogout" class="sub-button sub-ghost hidden" type="button">安全退出</button></div>
+    </header>
+    <section id="subNotice" class="sub-notice hidden" role="alert"></section>
+    <section id="subGate" class="sub-gate">
+      <div class="sub-gate-icon">◈</div>
+      <h2>这是你的私人订阅空间</h2>
+      <p id="subGateText">订阅名称、费用及到期日期不会随公开监控面板展示。需要通过独立密码访问。</p>
+      <form id="subLogin">
+        <label for="subPassword">订阅中心独立访问密码</label>
+        <input id="subPassword" type="password" autocomplete="current-password" placeholder="请在 SSH 菜单中设置的密码" required minlength="12">
+        <button class="sub-button sub-primary" type="submit">解锁订阅中心 →</button>
+      </form>
+      <p class="sub-gate-footer">请使用 HTTPS。密码可在 MiniProbe SSH 主菜单 → 15 → 6 设置。</p>
+    </section>
+    <div id="subPrivate" class="hidden">
+      <div class="sub-section-title"><div><h2>概览</h2><p>订阅及 VPS 数据实时关联，金额按原始币种显示</p></div><span id="subUpdated" class="sub-muted"></span></div>
+      <div class="sub-kpis" aria-label="订阅概览">
+        <article class="sub-kpi"><span>当前记录</span><strong id="subTotal">—</strong><small>含关联的 VPS</small></article>
+        <article class="sub-kpi"><span>30 天内到期</span><strong id="subDue30">—</strong><small>根据各订阅本地日期</small></article>
+        <article class="sub-kpi"><span>自动关联 VPS</span><strong id="subVPS">—</strong><small>直接读取节点费用与到期日</small></article>
+      </div>
+      <section class="sub-panel" id="sub-list">
+        <div class="sub-section-title"><div><h2>我的订阅</h2><p>参考 Renewlet 的分类卡片 · 仅展示，不开放公网写入</p></div><span id="subShown" class="sub-count"></span></div>
+        <div class="sub-toolbar">
+          <label class="sub-search"><span aria-hidden="true">⌕</span><input id="subQuery" type="search" placeholder="搜索订阅名称或标签…" aria-label="搜索订阅"></label>
+          <select id="subCategory" aria-label="按分类筛选">
+            <option value="">全部分类</option><option value="vps">VPS</option>
+            <option value="video">影视/IPTV</option><option value="ai">AI</option>
+            <option value="domain">域名/云服务</option><option value="software">软件/App</option><option value="other">其他</option>
+          </select>
+          <select id="subStatus" aria-label="按状态筛选">
+            <option value="">全部状态</option><option value="active">有效</option><option value="paused">已暂停</option><option value="cancelled">已取消</option><option value="expired">已到期</option>
+          </select>
+        </div>
+        <div id="subCards" class="sub-cards"></div>
+        <div id="subEmpty" class="sub-empty hidden">没有符合条件的订阅。<br>请通过 SSH 管理菜单新增，或检查筛选条件。</div>
+      </section>
+      <div class="sub-bottom-tip"><span>✦</span> 订阅费用不作未经确认的跨币种换算。提醒、续费历史、统计与日历将在 DEV2 / DEV3 增加。</div>
+    </div>
+  </main>
+</div>
+<script src="/ui/0.4.28-alpha/subscriptions.js" defer></script>
+</body>
+</html>

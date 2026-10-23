@@ -222,6 +222,8 @@ type loginFailures struct {
 type server struct {
 	mu           sync.RWMutex
 	db           database
+	subscriptionMu sync.RWMutex
+	subscriptions subscriptionStore
 	secret       []byte
 	dataFile     string
 	downloadsDir string
@@ -317,6 +319,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	if err := s.loadSubscriptions(); err != nil {
+		log.Fatal("load subscriptions: ", err)
+	}
 	s.agentAssets = loadAgentAssets(s.downloadsDir)
 	s.initNetworkHistory()
 	s.initTrafficHistory()
@@ -351,6 +356,10 @@ func main() {
 	publicMux.HandleFunc("/api/v1/nodes", s.dashboardOnly(s.nodesAPI))
 	publicMux.HandleFunc("/api/v1/network/history", s.dashboardOnly(s.networkHistoryAPI))
 	publicMux.HandleFunc("/api/v1/traffic/dashboard", s.dashboardOnly(s.trafficDashboardAPI))
+	publicMux.HandleFunc("/api/v1/subscriptions/session", s.subscriptionSession)
+	publicMux.HandleFunc("/api/v1/subscriptions/login", s.subscriptionLogin)
+	publicMux.HandleFunc("/api/v1/subscriptions/logout", s.subscriptionLogout)
+	publicMux.HandleFunc("/api/v1/subscriptions", s.subscriptionRead)
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
@@ -873,12 +882,14 @@ func legacyDashboardTarget(path string) (string, bool) {
 
 func (s *server) dashboardAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.dashboardMode() == dashboardDisabled {
+		path := r.URL.Path
+		subscriptionAsset := path == "/subscriptions.html" || path == "/subscriptions.js" || path == "/subscriptions.css" ||
+			strings.HasSuffix(path, "/subscriptions.html") || strings.HasSuffix(path, "/subscriptions.js") || strings.HasSuffix(path, "/subscriptions.css")
+		if s.dashboardMode() == dashboardDisabled && !subscriptionAsset {
 			http.NotFound(w, r)
 			return
 		}
 
-		path := r.URL.Path
 		uiPrefix := "/ui/" + serverVersion
 		versioned := path == uiPrefix || strings.HasPrefix(path, uiPrefix+"/")
 
@@ -918,7 +929,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				return
 			}
 			r.URL.Path = rel
-			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html"
+			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html" || rel == "/subscriptions.html"
 			isStatic := strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".css") || strings.HasSuffix(rel, ".svg")
 			if isHTML {
 				noStore(w)
@@ -929,7 +940,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 			return
 		}
 
-		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html"
+		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html" || path == "/subscriptions.html"
 		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".svg")
 		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			target := uiPrefix + "/"
@@ -937,6 +948,8 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				target = uiPrefix + "/network.html"
 			} else if path == "/traffic.html" {
 				target = uiPrefix + "/traffic.html"
+			} else if path == "/subscriptions.html" {
+				target = uiPrefix + "/subscriptions.html"
 			}
 			q := r.URL.Query()
 			q.Del("v")
@@ -1090,6 +1103,8 @@ func (s *server) startAdminSocket() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/config", s.localConfig)
 	mux.HandleFunc("/v1/nodes", s.localNodes)
+	mux.HandleFunc("/v1/subscriptions", s.localSubscriptions)
+	mux.HandleFunc("/v1/subscriptions/password", s.localSubscriptionPassword)
 	mux.HandleFunc("/v1/node-command", s.localNodeCommand)
 	mux.HandleFunc("/v1/agent-upgrade", s.localAgentUpgrade)
 	mux.HandleFunc("/v1/route-baseline", s.localRouteBaseline)
@@ -2326,6 +2341,7 @@ func runManager(socketPath string) error {
 		fmt.Println("12. Agent 版本管理 / 集中升级")
 		fmt.Println("13. Server 检查更新 / 升级")
 		fmt.Println("14. IP 属性检测（默认关闭）")
+		fmt.Println("15. 订阅管理中心（SSH 私有管理）")
 		fmt.Println(" 0. 退出")
 		fmt.Println("------------------------------------------------------------")
 		choice := prompt(reader, "请选择: ")
@@ -2360,6 +2376,8 @@ func runManager(socketPath string) error {
 			}
 		case "14":
 			manageIPAttributeSettings(reader, client)
+		case "15":
+			manageSubscriptions(reader, client)
 		case "0", "q", "Q":
 			return nil
 		default:
