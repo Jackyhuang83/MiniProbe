@@ -62,7 +62,7 @@ func TestSubscriptionCRUDAndVPSOneSource(t *testing.T){
 }
 func TestSubscriptionStorageSeparateAndPrivate(t *testing.T){
  s:=subscriptionTestServer(t)
- store:=s.subscriptions;store.Items=[]subscriptionRecord{sampleSubscription()}
+ store:=s.subscriptions;record:=sampleSubscription();record.ID="sub-test";store.Items=[]subscriptionRecord{record}
  s.subscriptionMu.Lock()
  err:=s.saveSubscriptionsLocked(store)
  s.subscriptionMu.Unlock()
