@@ -1,13 +1,8 @@
 name: Publish MiniProbe Docker Server
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - deploy/docker/**
-      - .dockerignore
-      - cmd/miniprobe-server/container_deployment*.go
-      - .github/workflows/docker-miniprobe.yml
+  # Publishing images is a separate explicit step after PR CI and merge.
+  # Do not consume GHCR/Actions quota or publish on every main change.
   workflow_dispatch:
 
 permissions:
