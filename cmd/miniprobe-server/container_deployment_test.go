@@ -40,6 +40,30 @@ func TestDockerMenu13RequestsOnlyHostSideUpdate(t *testing.T) {
 	}
 }
 
+func TestDockerMenu8DelegatesOnlyFixedActions(t *testing.T) {
+	t.Setenv("MINIPROBE_DEPLOYMENT", "docker")
+	for _, tc := range []struct {
+		input string
+		want error
+	}{
+		{"1\n", errDockerTunnelStatusRequested},
+		{"2\n", errDockerTunnelStartRequested},
+		{"3\n", errDockerTunnelStopRequested},
+		{"0\n", nil},
+		{"4\n", nil},
+	} {
+		got := dispatchNetworkAccessMenu(bufio.NewReader(strings.NewReader(tc.input)), nil, "/not-present.sock")
+		if !errors.Is(got, tc.want) {
+			t.Fatalf("menu 8 option %q: got %v, want %v", tc.input, got, tc.want)
+		}
+	}
+	for _, code := range []int{dockerTunnelStatusExitCode, dockerTunnelStartExitCode, dockerTunnelStopExitCode} {
+		if code == 0 || code == dockerUpgradeRequestExitCode {
+			t.Fatalf("reserved menu handoff code conflict: %d", code)
+		}
+	}
+}
+
 func TestDockerNetworkAccessMenuDoesNotCallLocalConfig(t *testing.T) {
 	t.Setenv("MINIPROBE_DEPLOYMENT", "docker")
 	reader := bufio.NewReader(strings.NewReader("1\n"))

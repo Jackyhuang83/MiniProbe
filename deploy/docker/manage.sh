@@ -110,6 +110,74 @@ run_auto_upgrade() {
   run_upgrade "$target"
 }
 
+# Status is local evidence only, not an end-to-end HTTPS / Agent check.
+tunnel_status() {
+  printf '%s\n' "========== MiniProbe Docker Tunnel 状态 =========="
+  server_id=$(compose ps -q server 2>/dev/null || true)
+  if [ -n "$server_id" ]; then
+    health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$server_id" 2>/dev/null || true)
+    printf 'MiniProbe Server: %s\n' "${health:-unknown}"
+  else
+    printf '%s\n' "MiniProbe Server: 未运行"
+  fi
+  if tunnel_is_running; then
+    printf '%s\n' "Cloudflare Tunnel: 容器运行中"
+    tunnel_compose ps cloudflared
+  else
+    printf '%s\n' "Cloudflare Tunnel: 未运行"
+  fi
+  if [ -s "$BASE/secrets/cloudflared.token" ] && [ ! -L "$BASE/secrets/cloudflared.token" ]; then
+    printf '%s\n' "独立 Tunnel Token 文件: 已配置（不显示内容）"
+  else
+    printf '%s\n' "独立 Tunnel Token 文件: 未配置或不可用"
+  fi
+  printf '%s\n' "说明：容器运行中不等于公网 HTTPS 或远端 Agent 一定可连接。"
+}
+
+validate_tunnel_token() {
+  [ -s "$BASE/secrets/cloudflared.token" ] || die "缺少独立 MiniProbe Tunnel Token 文件；不要使用 HomeSphere Token"
+  [ ! -L "$BASE/secrets/cloudflared.token" ] || die "Tunnel Token 不允许是符号链接"
+  owner=$(stat -c %u "$BASE/secrets/cloudflared.token")
+  [ "$owner" = 10001 ] || die "Token 文件必须属于 UID 10001，请检查 MiniProbe Token 文件属主"
+  mode=$(stat -c %a "$BASE/secrets/cloudflared.token")
+  [ "$mode" = 600 ] || die "Token 文件权限必须是 0600"
+}
+
+tunnel_start_safe() {
+  [ -t 0 ] && [ -t 1 ] || die "需要交互式 SSH 终端"
+  check_data
+  if tunnel_is_running; then
+    printf '%s\n' "Tunnel 已运行；不会重新创建容器。"
+    return 0
+  fi
+  server_id=$(compose ps -q server 2>/dev/null || true)
+  [ -n "$server_id" ] || die "MiniProbe Server 未运行，不启动 Tunnel"
+  health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$server_id" 2>/dev/null || true)
+  [ "$health" = healthy ] || die "MiniProbe Server 未通过健康检查，不启动 Tunnel"
+  validate_tunnel_token
+  printf '%s\n' "请确认 Cloudflare MiniProbe 专用 Tunnel 的 Public Hostname 指向 http://127.0.0.1:28888"
+  printf '%s' "输入 START 确认启动（其它输入取消）: "
+  IFS= read -r answer </dev/tty || die "未读取到终端输入；已取消"
+  [ "$answer" = START ] || { printf '%s\n' "已取消，未修改服务。"; return 0; }
+  refresh_tunnel
+  printf '%s\n' "已启动 Tunnel 容器；请通过公网 HTTPS 与 Agent 在线状态验证实际连通性。"
+}
+
+tunnel_stop_safe() {
+  [ -t 0 ] && [ -t 1 ] || die "需要交互式 SSH 终端"
+  if ! tunnel_is_running; then
+    printf '%s\n' "Tunnel 尚未运行，无需停止。"
+    return 0
+  fi
+  printf '%s\n' "[警告] 停止 Tunnel 可能使 Dashboard 和所有经此入口上报的 Agent 失联。"
+  printf '%s\n' "不会自动开放公网 HTTP，也不会删除 Token 或改动 Agent 地址。"
+  printf '%s' "输入 STOP 确认停止（其它输入取消）: "
+  IFS= read -r answer </dev/tty || die "未读取到终端输入；已取消"
+  [ "$answer" = STOP ] || { printf '%s\n' "已取消，Tunnel 保持运行。"; return 0; }
+  tunnel_compose stop cloudflared
+  printf '%s\n' "Tunnel 已停止；如需恢复，执行 sh manage.sh tunnel-start。"
+}
+
 require_docker
 case "${1:-help}" in
   start)
@@ -128,11 +196,13 @@ case "${1:-help}" in
       :
     else
       status=$?
-      if [ "$status" -eq 73 ]; then
-        run_auto_upgrade
-      else
-        exit "$status"
-      fi
+      case "$status" in
+        73) run_auto_upgrade ;;
+        74) tunnel_status ;;
+        75) tunnel_start_safe ;;
+        76) tunnel_stop_safe ;;
+        *) exit "$status" ;;
+      esac
     fi
     ;;
   update)
@@ -149,19 +219,17 @@ case "${1:-help}" in
     run_upgrade "$@"
     ;;
   tunnel-start)
-    [ -s "$BASE/secrets/cloudflared.token" ] || die "缺少独立 MiniProbe Tunnel Token 文件；不要使用 HomeSphere Token"
-    [ ! -L "$BASE/secrets/cloudflared.token" ] || die "Tunnel Token 不允许是符号链接"
-    token_owner=$(stat -c %u "$BASE/secrets/cloudflared.token")
-    [ "$token_owner" = 10001 ] || die "Token 文件应由 UID 10001 所有，请在宿主机执行 chown 10001:10001 secrets/cloudflared.token"
-    token_mode=$(stat -c %a "$BASE/secrets/cloudflared.token")
-    [ "$token_mode" = 600 ] || die "Token 文件权限应为 0600，请在宿主机执行 chmod 0600 secrets/cloudflared.token"
+    validate_tunnel_token
     refresh_tunnel
     ;;
   tunnel-stop)
     tunnel_compose stop cloudflared
     ;;
+  tunnel-status)
+    tunnel_status
+    ;;
   *)
     printf '%s\n' "MiniProbe Docker · 独立于 HomeSphere"
-    printf '%s\n' "用法：./manage.sh {start|status|menu|update|logs|stop|upgrade <image>|tunnel-start|tunnel-stop}"
+    printf '%s\n' "用法：./manage.sh {start|status|menu|update|logs|stop|upgrade <image>|tunnel-status|tunnel-start|tunnel-stop}"
     ;;
 esac

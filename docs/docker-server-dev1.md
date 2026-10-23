@@ -2,6 +2,21 @@
 
 状态：开发中，仅用于 PR 审查及 CI 验证；不代表已部署。当前 Server v0.4.30-alpha，Agent 目标版本仍为 v0.4.28-alpha。
 
+## Docker 菜单 8：Tunnel 状态和安全操作（v0.4.33-alpha）
+
+在 VPS 宿主机执行 `sh /opt/miniprobe-docker/manage.sh menu`，选择 `8`，提供：
+
+- `1`：仅读取 Server 容器健康状态、Cloudflare Tunnel 容器状态，以及专用 Token 文件是否存在；不输出 Token 内容
+- `2`：只有 Server healthy、Token 文件属主为 UID 10001 且权限为 0600 时才允许继续；宿主机确认输入 `START`，启动独立 Tunnel；已运行则不重启
+- `3`：提示 HTTPS Dashboard 与 Agent 上报可能断开；宿主机输入 `STOP` 才停止独立 Tunnel；不会自动开放公网 HTTP
+- `0`：返回，不修改配置
+
+容器只通过固定退出状态码（74/75/76）向宿主机管理脚本请求动作；不共享 Docker Socket，也不提供公网管理 API。运行状态**不代表** Cloudflare Tunnel 已认证成功或公网链路畅通，仍需从公网检查 HTTPS 和节点上线状态。直接在容器内运行二进制不会执行宿主机管理动作。
+
+宿主机另可执行 `sh /opt/miniprobe-docker/manage.sh tunnel-status` 仅读状态。首次启用 Tunnel 前，仍须在 Cloudflare 控制台配置 MiniProbe 专用 Tunnel/域名、将 Public Hostname Service 指向 `http://127.0.0.1:28888`，并由管理员在宿主机安全保存独立 Token。不会复用 HomeSphere 凭据。
+
+**部署注意**：容器镜像与宿主机 `manage.sh` 都必须更新到本功能对应版本，才能从菜单 8 调用宿主机。不能只升级容器镜像。
+
 ## 目标和隔离设计
 
 - MiniProbe Server 单独使用 Compose 项目名 miniprobe，不与 HomeSphere 共享容器、网络、数据库、Docker Socket、Tunnel Token 或文件挂载。

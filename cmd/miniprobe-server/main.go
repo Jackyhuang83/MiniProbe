@@ -46,7 +46,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.32-alpha"
+	serverVersion        = "0.4.33-alpha"
 	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -305,8 +305,15 @@ func main() {
 
 	if *manage {
 		if err := runManager(*adminSocket); err != nil {
-			if errors.Is(err, errDockerUpgradeRequested) {
+			switch {
+			case errors.Is(err, errDockerUpgradeRequested):
 				os.Exit(dockerUpgradeRequestExitCode)
+			case errors.Is(err, errDockerTunnelStatusRequested):
+				os.Exit(dockerTunnelStatusExitCode)
+			case errors.Is(err, errDockerTunnelStartRequested):
+				os.Exit(dockerTunnelStartExitCode)
+			case errors.Is(err, errDockerTunnelStopRequested):
+				os.Exit(dockerTunnelStopExitCode)
 			}
 			fmt.Fprintln(os.Stderr, "MiniProbe 管理失败:", err)
 			os.Exit(1)
@@ -2399,7 +2406,9 @@ func runManager(socketPath string) error {
 		case "7":
 			manageDashboard(reader, client)
 		case "8":
-			manageNetworkAccess(reader, client, socketPath)
+			if err := dispatchNetworkAccessMenu(reader, client, socketPath); err != nil {
+				return err // Docker Tunnel actions run only in the SSH host helper.
+			}
 		case "9":
 			manageTelegram(reader, client)
 		case "10":
@@ -3004,6 +3013,45 @@ func manageDashboard(r *bufio.Reader, c *localClient) {
 		return
 	}
 	fmt.Printf("Dashboard 已切换为：%s\n", dashboardModeLabel(mode))
+}
+
+// A fixed, limited exit-status protocol delegates Docker Tunnel actions to
+// the SSH host helper; no Docker Socket, privilege or generic commands in the container.
+const (
+	dockerTunnelStatusExitCode = 74
+	dockerTunnelStartExitCode  = 75
+	dockerTunnelStopExitCode   = 76
+)
+var (
+	errDockerTunnelStatusRequested = errors.New("docker tunnel host status requested")
+	errDockerTunnelStartRequested  = errors.New("docker tunnel host start requested")
+	errDockerTunnelStopRequested   = errors.New("docker tunnel host stop requested")
+)
+
+func dispatchNetworkAccessMenu(r *bufio.Reader, c *localClient, socketPath string) error {
+	if !isDockerDeployment() {
+		manageNetworkAccess(r, c, socketPath)
+		return nil
+	}
+	fmt.Println("\n========== Docker HTTPS / Cloudflare Tunnel ==========")
+	fmt.Println("容器不会操作宿主机 Docker/systemd；Tunnel 操作由 SSH 管理脚本接管。")
+	fmt.Println("1. 查看 Server / Tunnel 本机状态（只读）")
+	fmt.Println("2. 启动 Tunnel（宿主机需再次确认）")
+	fmt.Println("3. 停止 Tunnel（可能造成 Dashboard / Agent 失联，宿主机需再次确认）")
+	fmt.Println("0. 返回")
+	switch prompt(r, "请选择: ") {
+	case "1":
+		return errDockerTunnelStatusRequested
+	case "2":
+		return errDockerTunnelStartRequested
+	case "3":
+		return errDockerTunnelStopRequested
+	case "0", "":
+		return nil
+	default:
+		fmt.Println("无效选项。")
+		return nil
+	}
 }
 
 func manageNetworkAccess(r *bufio.Reader, c *localClient, socketPath string) {
