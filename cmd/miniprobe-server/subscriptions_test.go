@@ -170,3 +170,51 @@ func TestSubscriptionUIAvailableWhenDashboardDisabled(t *testing.T){
  b,err:=io.ReadAll(w.Result().Body);if err!=nil{t.Fatal(err)}
  _=b
 }
+
+// A Docker management client writes the owner password using the local-only
+// endpoint. Its hash and 0600 file survive loading a new Server instance.
+func TestDockerSubscriptionPasswordSetupPersists(t *testing.T) {
+	t.Setenv("MINIPROBE_DEPLOYMENT", "docker")
+	if !isDockerDeployment() {
+		t.Fatal("Docker deployment marker is not active")
+	}
+	s := subscriptionTestServer(t)
+	const password = "ci-only-docker-subscription-secret-2026"
+	body, err := json.Marshal(map[string]string{"password": password})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "http://unix/v1/subscriptions/password", strings.NewReader(string(body)))
+	w := httptest.NewRecorder()
+	s.localSubscriptionPassword(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("Docker password setup returned %d: %s", w.Code, w.Body.String())
+	}
+	info, err := os.Stat(s.subscriptionPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0600 {
+		t.Fatalf("private ledger mode %o, want 0600", info.Mode().Perm())
+	}
+	raw, err := os.ReadFile(s.subscriptionPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), password) {
+		t.Fatal("subscription password written in plaintext")
+	}
+	restarted := subscriptionTestServer(t)
+	restarted.dataFile = s.dataFile
+	if err := restarted.loadSubscriptions(); err != nil {
+		t.Fatal(err)
+	}
+	if !verifyPassword(password, restarted.subscriptions.OwnerPassword) {
+		t.Fatal("Docker subscription password did not survive reload")
+	}
+	session := httptest.NewRecorder()
+	restarted.subscriptionSession(session, httptest.NewRequest(http.MethodGet, "http://unix/api/v1/subscriptions/session", nil))
+	if session.Code != http.StatusOK || !strings.Contains(session.Body.String(), `"enabled":true`) {
+		t.Fatalf("password not enabled after reload: %d %s", session.Code, session.Body.String())
+	}
+}
