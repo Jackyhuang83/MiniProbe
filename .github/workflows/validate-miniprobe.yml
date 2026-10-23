@@ -34,6 +34,8 @@ jobs:
           node --check cmd/miniprobe-server/web/network.js
           node --check cmd/miniprobe-server/web/traffic.js
           node --check cmd/miniprobe-server/web/subscriptions.js
+      - name: Check subscription card billing labels
+        run: node scripts/test-subscription-cards.cjs
       - name: Check ranking usage tiers and expiry dates
         run: node scripts/test-traffic-ranking.cjs
       - name: Cross-build release binaries (no publish)

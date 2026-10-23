@@ -6,7 +6,18 @@
   const categoryText = {vps:"VPS",video:"影视 / IPTV",ai:"AI 服务",domain:"域名 / 云服务",software:"软件 / App",other:"其他订阅"};
   const categoryIcon = {vps:"▣",video:"▶",ai:"✧",domain:"◎",software:"▦",other:"◇"};
   const statusText = {active:"有效",paused:"已暂停",cancelled:"已取消",expired:"已到期"};
-  const cycleText = {monthly:"月付",quarterly:"季付",yearly:"年付",custom:"自定义",long_term:"长期"};
+  const cycleText = {monthly:"月度",quarterly:"季度",yearly:"年度",custom:"自定义",long_term:"长期"};
+  // Node settings currently provide a monthly price, not the actual billing interval or renewal mode.
+  // Never claim that a VPS is monthly-billed or manually renewed when the source did not say so.
+  function billingBadge(item) {
+    if (item.source==="vps" && item.cycle!=="long_term") return {label:"月租",style:"node"};
+    const label=cycleText[item.cycle]||"周期未设置";
+    return {label:item.cycle==="custom"&&item.custom_days?label+" · "+item.custom_days+"天":label,style:item.cycle||"unknown"};
+  }
+  function renewalLabel(item) {
+    if(item.source==="vps") return {label:"续费方式未设置",style:"unknown",icon:"○"};
+    return item.auto_renew===true?{label:"自动续费",style:"automatic",icon:"↻"}:{label:"手动续费",style:"manual",icon:"◷"};
+  }
   function alertText(message) {$("subNotice").textContent=message;$("subNotice").classList.remove("hidden");}
   function clearAlert() {$("subNotice").classList.add("hidden");$("subNotice").textContent="";}
   async function request(path, options={}) {
@@ -61,12 +72,15 @@
     const state=effectiveStatus(item);
     row.append(el("span","sub-tag "+(state==="active"?"good":state==="expired"?"bad":"warn"),statusText[state]||state));
     if(item.source==="vps")row.append(el("span","sub-tag","VPS 自动同步"));
-    if(item.auto_renew)row.append(el("span","sub-tag","自动续费"));
+    // Renewal mode belongs near the due date; keep the header focused on status.
     node.append(row,el("div","sub-divider"));
     const total=el("div","sub-card-price",price(item));
     total.append(el("small","",item.currency?" "+item.currency:""));
-    node.append(total);
-    node.append(el("div","sub-cycle",cycleText[item.cycle]||"自定义"+(item.custom_days?" · 每 "+item.custom_days+" 天":"") ));
+    const priceRow=el("div","sub-price-row");
+    const badge=billingBadge(item);
+    priceRow.append(total,el("span","sub-cycle-badge "+badge.style,badge.label));
+    node.append(priceRow);
+    if(item.source==="vps") node.append(el("div","sub-cycle-note","节点月租金额 · 实际扣费周期未设置"));
     const days=daysUntil(item.due_date,item.time_zone);
     let badge="未设置";
     if(item.cycle==="long_term")badge="长期";
@@ -75,6 +89,8 @@
     due.append(el("span","",item.cycle==="long_term"?"服务期限":"下次到期"));
     due.append(el("b",days!==null&&days<=7?"danger":"",badge));
     node.append(due);
+    const renewal=renewalLabel(item);
+    node.append(el("div","sub-renew "+renewal.style,renewal.icon+" "+renewal.label));
     let meta=item.due_date||"无到期日期";
     if(item.source==="vps")meta+=" · 来源："+(item.node_id||"节点");
     if(item.tags?.length)meta+=" · "+item.tags.join(", ");
