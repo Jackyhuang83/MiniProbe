@@ -114,6 +114,81 @@
     }));
     $("subRenewalEmpty").classList.toggle("hidden",renewals.length!==0);
   }
+
+  // DEV3: forecasts are projections, not actual charges. Never mix currencies.
+  function nextCycleDate(date,cycle,customDays) {
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date||""))return null;
+    const [year,month,day]=date.split("-").map(Number);
+    const base=new Date(Date.UTC(year,month-1,day));
+    if(Number.isNaN(base.getTime())||base.toISOString().slice(0,10)!==date)return null;
+    if(cycle==="custom"&&customDays>0)base.setUTCDate(base.getUTCDate()+customDays);
+    else {
+      const months={monthly:1,quarterly:3,yearly:12}[cycle];
+      if(!months)return null;
+      const target=new Date(Date.UTC(year,month-1+months,1));
+      const end=new Date(Date.UTC(target.getUTCFullYear(),target.getUTCMonth()+1,0)).getUTCDate();
+      target.setUTCDate(Math.min(day,end));
+      return target.toISOString().slice(0,10);
+    }
+    return base.toISOString().slice(0,10);
+  }
+  function projectedDates(item,year) {
+    if(item.source==="vps"||item.status!=="active"||!item.due_date||item.cycle==="long_term")return [];
+    let current=item.due_date,dates=[],seen=new Set();
+    // Forecast only from known due dates; don't invent historical payments.
+    for(let n=0;n<500;n++){
+      if(seen.has(current))break;seen.add(current);
+      if(current.slice(0,4)>String(year))break;
+      if(current.slice(0,4)===String(year))dates.push(current);
+      const next=nextCycleDate(current,item.cycle,item.custom_days);
+      if(!next||next<=current)break;current=next;
+    }
+    return dates;
+  }
+  function renderInsights(){
+    const year=Number($("subYear").value)||new Date().getFullYear();
+    const totals=new Map(),monthTotals=Array.from({length:12},()=>new Map()),calendar=new Map();
+    let excluded=0;
+    for(const item of items){
+      const dates=projectedDates(item,year);
+      if(item.source==="vps"&&item.amount_minor>0)excluded++;
+      for(const date of dates){
+        const currency=item.currency;
+        if(!currency)continue;
+        const amount=Number(item.amount_minor);
+        if(!Number.isSafeInteger(amount)||amount<0)continue;
+        totals.set(currency,(totals.get(currency)||0)+amount);
+        const month=Number(date.slice(5,7))-1;
+        monthTotals[month].set(currency,(monthTotals[month].get(currency)||0)+amount);
+        if(!calendar.has(date))calendar.set(date,[]);
+        calendar.get(date).push(item.name);
+      }
+    }
+    const fmt=map=>[...map].sort((a,b)=>a[0].localeCompare(b[0])).map(([currency,amount])=>price({currency,amount_minor:amount})+" "+currency).join(" · ")||"—";
+    $("subForecastTotal").textContent=fmt(totals);
+    $("subForecastCaveat").textContent="仅预测已设置周期、有效且有到期日的手动订阅；"+excluded+" 个有月租的 VPS 未纳入，避免假设扣费周期。";
+    $("subMonthRows").replaceChildren(...monthTotals.map((total,i)=>{
+      const line=el("div","sub-month-row");
+      line.append(el("span","",String(i+1).padStart(2,"0")+" 月"),el("strong","",fmt(total)));
+      return line;
+    }));
+    const month=Number($("subCalendarMonth").value);
+    const first=new Date(Date.UTC(year,month-1,1)).getUTCDay();
+    const count=new Date(Date.UTC(year,month,0)).getUTCDate();
+    const cells=[];
+    for(let i=0;i<first;i++)cells.push(el("div","sub-calendar-blank",""));
+    for(let d=1;d<=count;d++){
+      const date=year+"-"+String(month).padStart(2,"0")+"-"+String(d).padStart(2,"0");
+      const names=calendar.get(date)||[];
+      const cell=el("div","sub-calendar-day"+(names.length?" has-due":""));
+      cell.append(el("b","",d));
+      if(names.length)cell.append(el("small","",names.length+" 笔预计到期"),el("span","",names.slice(0,2).join("、")));
+      cells.push(cell);
+    }
+    $("subCalendarGrid").replaceChildren(...cells);
+    $("subCalendarSummary").textContent="本月 "+[...calendar.keys()].filter(d=>d.startsWith(year+"-"+String(month).padStart(2,"0"))).reduce((n,d)=>n+calendar.get(d).length,0)+" 笔预计到期 · VPS 日期不参与周期推算";
+  }
+
   function render() {
     const q=$("subQuery").value.trim().toLocaleLowerCase();
     const cat=$("subCategory").value;
@@ -133,7 +208,7 @@
     items=Array.isArray(result.items)?result.items:[];
     renewals=Array.isArray(result.renewals)?result.renewals:[];
     reminderConfig=result.reminders||{enabled:false,days:[]};
-    clearAlert();authView(true);render();renderRenewals();
+    clearAlert();authView(true);render();renderRenewals();renderInsights();
   }
   async function init() {
     try {
@@ -168,5 +243,10 @@
     items=[];authView(false);
   });
   for(const id of ["subQuery","subCategory","subStatus"])$(id).addEventListener(id==="subQuery"?"input":"change",render);
+  const currentYear=new Date().getFullYear();
+  for(let y=currentYear-1;y<=currentYear+2;y++){$("subYear").append(el("option","",y));$("subYear").lastChild.value=String(y);}
+  $("subYear").value=String(currentYear);
+  $("subCalendarMonth").value=String(new Date().getMonth()+1);
+  for(const id of ["subYear","subCalendarMonth"])$(id).addEventListener("change",renderInsights);
   init();
 })();
