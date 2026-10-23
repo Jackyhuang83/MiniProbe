@@ -38,6 +38,7 @@ jobs:
         run: |
           node scripts/test-release-version.cjs
           node scripts/test-subscription-cards.cjs
+          node scripts/test-subscription-dev4.cjs
       - name: Check ranking usage tiers and expiry dates
         run: |
           node scripts/test-traffic-ranking.cjs
