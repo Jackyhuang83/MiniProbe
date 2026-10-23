@@ -176,3 +176,22 @@ func TestSubscriptionDEV2StoreV1MigrationAndFailClosed(t *testing.T){
  if err:=os.WriteFile(s.subscriptionPath(),bad,0600);err!=nil{t.Fatal(err)}
  if err:=next.loadSubscriptions();err==nil{t.Fatal("unknown version must fail closed")}
 }
+
+func TestSubscriptionDEV2EmptyReminderScheduleSurvivesRestart(t *testing.T) {
+ s:=subscriptionTestServer(t)
+ dev2ManualRecord(s,"sub-no-reminder","2026-10-30")
+ cfg:=subscriptionReminderConfig{Enabled:true,Days:[]int{}}
+ w:=dev2WriteJSON(t,s,s.localSubscriptionReminders,"PUT","/v1/subscriptions/reminders",cfg)
+ if w.Code!=200{t.Fatalf("set disabled reminder phases: %d %s",w.Code,w.Body.String())}
+ other:=subscriptionTestServer(t)
+ other.dataFile=s.dataFile
+ if err:=other.loadSubscriptions();err!=nil{t.Fatal(err)}
+ if other.subscriptions.ReminderDays==nil||len(other.subscriptions.ReminderDays)!=0 {
+  t.Fatalf("empty reminder schedule lost after reload: %+v",other.subscriptions.ReminderDays)
+ }
+ other.db.Settings.Telegram=telegramConfig{Enabled:true,BotToken:"test",ChatID:"123"}
+ sent:=0
+ now:=time.Date(2026,10,23,11,0,0,0,time.UTC)
+ if err:=other.processSubscriptionReminders(now,func(string)error{sent++;return nil});err!=nil{t.Fatal(err)}
+ if sent!=0{t.Fatal("empty schedule unexpectedly restored default alerts")}
+}
