@@ -78,7 +78,8 @@ func (s *server) localSubscriptionRestore(w http.ResponseWriter,r *http.Request)
  }
  if err:=validateSubscriptionDev2(store);err!=nil{http.Error(w,"invalid renewal/reminder data",400);return}
  s.subscriptionMu.Lock();defer s.subscriptionMu.Unlock()
- // Preserve the current ledger before replacing it; restoration is atomic.
+ // Restore uses the existing atomic private-ledger writer. The operator must
+ // create a separate backup first if the current state needs preserving.
  if err:=s.saveSubscriptionsLocked(store);err!=nil{http.Error(w,fmt.Sprintf("restore failed: %v",err),500);return}
  writeJSON(w,200,map[string]bool{"ok":true})
 }
