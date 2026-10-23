@@ -122,6 +122,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
   fmt.Println(" 7. 查看 / 记录续费（含 VPS 记录）")
   fmt.Println(" 8. Telegram 到期提醒（默认关闭）")
   fmt.Println(" 9. 单条订阅提醒设置")
+  fmt.Println("10. 私有账本备份 / 恢复")
   fmt.Println(" 0. 返回主菜单")
   switch prompt(r,"请选择: "){
   case "1":
@@ -163,6 +164,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
   case "7":manageSubscriptionRenewals(r,c)
   case "8":manageSubscriptionReminders(r,c)
   case "9":manageSubscriptionOverride(r,c)
+  case "10":manageSubscriptionBackups(r,c)
   case "0":return
   default:fmt.Println("无效选项。")
   }
@@ -285,4 +287,31 @@ func manageSubscriptionOverride(r *bufio.Reader,c *localClient){
  default:fmt.Println("已取消");return
  }
  if err:=c.request(http.MethodPut,"/v1/subscriptions/reminder-override",payload,nil);err!=nil{fmt.Println("保存失败:",err)}else{fmt.Println("本条订阅提醒设置已保存。")}
+}
+
+func manageSubscriptionBackups(r *bufio.Reader,c *localClient){
+ fmt.Println("\n========== 私有订阅备份 / 恢复 ==========")
+ fmt.Println("备份保存在 Server 本机 root-only 目录，不开放公网下载。")
+ fmt.Println("1. 创建备份")
+ fmt.Println("2. 查看备份")
+ fmt.Println("3. 从备份恢复（覆盖当前订阅账本）")
+ choice:=prompt(r,"请选择（回车返回）: ")
+ switch choice{
+ case "1":
+  var result struct{Name string `json:"name"`;Bytes int `json:"bytes"`}
+  if err:=c.request(http.MethodPost,"/v1/subscriptions/backup",map[string]bool{},&result);err!=nil{fmt.Println("备份失败:",err)}else{fmt.Printf("备份成功：%s (%d 字节)
+",result.Name,result.Bytes)}
+ case "2","3":
+  var result struct{Items []string `json:"items"`}
+  if err:=c.request(http.MethodGet,"/v1/subscriptions/backups",nil,&result);err!=nil{fmt.Println("读取失败:",err);return}
+  if len(result.Items)==0{fmt.Println("尚无备份。");return}
+  for i,name:=range result.Items{fmt.Printf("%d. %s
+",i+1,name)}
+  if choice=="2"{return}
+  idx,err:=strconv.Atoi(prompt(r,"选择要恢复的备份编号: "))
+  if err!=nil||idx<1||idx>len(result.Items){fmt.Println("无效编号。");return}
+  fmt.Println("警告：恢复会覆盖当前所有手动订阅、续费历史及提醒设置。")
+  if prompt(r,"确认恢复，输入 RESTORE: ")!="RESTORE"{fmt.Println("已取消。");return}
+  if err:=c.request(http.MethodPost,"/v1/subscriptions/restore",map[string]string{"name":result.Items[idx-1],"confirm":"RESTORE"},nil);err!=nil{fmt.Println("恢复失败:",err)}else{fmt.Println("恢复成功。")}
+ }
 }
