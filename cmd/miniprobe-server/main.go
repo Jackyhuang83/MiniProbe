@@ -398,9 +398,11 @@ func main() {
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
-	// Keep the final migration snapshot current when Compose/systemd stops Server.
-	s.flushCompletedHistoryMinutes(time.Now().UTC().Add(time.Minute))
-	if err := s.flushTrafficHistory(time.Now().UTC().Add(trafficHistoryInterval)); err != nil {
+	// Persist completed history windows only. Forcing incomplete buckets to disk
+	// here would create duplicate intervals after a quick container restart.
+	now := time.Now().UTC()
+	s.flushCompletedHistoryMinutes(now)
+	if err := s.flushTrafficHistory(now); err != nil {
 		log.Printf("flush traffic on shutdown: %v", err)
 	}
 	if err := s.save(); err != nil {
