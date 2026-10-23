@@ -55,7 +55,7 @@ func (s *server) localSubscriptionRestore(w http.ResponseWriter,r *http.Request)
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",405);return}
  var in struct{Name string `json:"name"`;Confirm string `json:"confirm"`}
  if err:=decodeJSON(w,r,&in);err!=nil{http.Error(w,"bad request",400);return}
- if in.Confirm!="RESTORE"||filepath.Base(in.Name)!=in.Name||!strings.HasPrefix(in.Name,"subscriptions-")||!strings.HasSuffix(in.Name,".json")||strings.ContainsAny(in.Name,"/\"){
+ if in.Confirm!="RESTORE"||filepath.Base(in.Name)!=in.Name||!strings.HasPrefix(in.Name,"subscriptions-")||!strings.HasSuffix(in.Name,".json")||strings.Contains(in.Name,"/")||strings.Contains(in.Name,`\`){
   http.Error(w,"invalid backup name or confirmation",400);return
  }
  path:=filepath.Join(s.subscriptionBackupDir(),in.Name)
