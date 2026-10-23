@@ -18,7 +18,7 @@ GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 - 仅将 Server 的 28888 端口绑定到宿主机 127.0.0.1；可选独立 Cloudflare Tunnel 容器仍走本机回环。
 - 容器内保留 Unix Socket SSH 管理菜单；禁用会修改宿主机 systemd 的网络切换和二进制自更新功能。
 - 不改变原有 Agent / Snell / SS2022 / Xray；迁移须保留旧 Server 数据库、签名身份与原接入域名。
-- 当前仍为 PR 开发功能，**不能把未发布的 GHCR 镜像视为可安装版本**。原生 systemd/OpenRC 安装方式保持不变。
+- 当前仍为 PR 开发功能，**GHCR 需要合并后显式触发发布，不会自动生成镜像**。原生 systemd/OpenRC 安装方式保持不变。
 
 ---
 
