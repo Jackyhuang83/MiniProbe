@@ -70,8 +70,11 @@ func promptSubscriptionFields(r *bufio.Reader,old *subscriptionRecord)(subscript
   val,ok:=cats[selection];if !ok{return rec,fmt.Errorf("分类编号无效")}
   rec.Category=val
  }
+ oldCurrency:=rec.Currency
  rec.Currency=strings.ToUpper(promptSubDefault(r,"币种 ISO 代码",rec.Currency))
- amount:=promptSubDefault(r,"费用",formatCurrencyMinor(rec.AmountMinor,rec.Currency))
+ defaultAmount:=formatCurrencyMinor(rec.AmountMinor,oldCurrency)
+ if rec.Currency!=oldCurrency {defaultAmount=""}
+ amount:=promptSubDefault(r,"费用"+map[bool]string{true:"（币种变化后必须重新输入）",false:""}[rec.Currency!=oldCurrency],defaultAmount)
  minor,err:=parseCurrencyMinor(amount,rec.Currency)
  if err!=nil{return rec,err}
  rec.AmountMinor=minor
