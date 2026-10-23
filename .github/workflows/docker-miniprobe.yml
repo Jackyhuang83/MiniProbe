@@ -1,11 +1,13 @@
 name: Publish MiniProbe Docker Server
 
 on:
-  # Publish Docker images when Docker deployment or this publishing workflow changes.
-  # Normal MiniProbe changes do not trigger expensive multi-architecture builds.
+  # Publish the Docker image when a Server release version changes (Makefile),
+  # or when Docker deployment/publishing files change. Ordinary code commits do
+  # not trigger an expensive multi-architecture build.
   push:
     branches: [main]
     paths:
+      - 'Makefile'
       - 'deploy/docker/**'
       - '.github/workflows/docker-miniprobe.yml'
   workflow_dispatch:
