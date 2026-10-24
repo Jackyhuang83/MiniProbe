@@ -300,7 +300,11 @@ func (s *server) subscriptionSession(w http.ResponseWriter,r *http.Request) {
  if r.Method!=http.MethodGet{http.Error(w,"method not allowed",405);return}
  s.subscriptionMu.RLock();enabled:=s.subscriptions.OwnerPassword.Hash!=""
  s.subscriptionMu.RUnlock()
- writeJSON(w,200,map[string]any{"enabled":enabled,"authenticated":requestIsTLS(r)&&s.hasSubscriptionSession(r),"secure":requestIsTLS(r)})
+ secure:=requestIsTLS(r)
+ authenticated:=secure&&s.hasSubscriptionSession(r)
+ state:=map[string]any{"enabled":enabled,"authenticated":authenticated,"secure":secure}
+ if authenticated {state["csrf"]=s.subscriptionCSRFToken(r)}
+ writeJSON(w,200,state)
 }
 func (s *server) subscriptionLogin(w http.ResponseWriter,r *http.Request) {
  noStore(w)

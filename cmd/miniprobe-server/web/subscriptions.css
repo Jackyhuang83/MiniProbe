@@ -45,3 +45,30 @@ h1,h2,p{margin-top:0}h1{margin-bottom:9px;font-size:28px;letter-spacing:-1px;fon
 .sub-history-panel{margin-top:20px}.sub-reminder-state{font-size:11px;color:#9cabce;margin-bottom:18px;background:#172139;border:1px solid #293950;border-radius:8px;padding:11px 14px}.sub-history-list{display:grid;gap:0}.sub-history-row{border-bottom:1px solid #2c3548;padding:13px 2px;display:flex;gap:16px;justify-content:space-between;align-items:center}.sub-history-row:last-child{border-bottom:0}.sub-history-desc{min-width:0}.sub-history-desc strong{display:block;font-size:12px;overflow-wrap:anywhere}.sub-history-desc small{display:block;margin-top:5px;color:#8d9cb8;font-size:11px}.sub-history-row>b{font-size:13px;color:#dfe7fc;white-space:nowrap}.sub-history-row>b small{font-size:11px;font-weight:400;color:#97a4c1}
 
 .sub-insights-picker{display:flex;align-items:center;gap:8px;font-size:12px;color:#9cabce}.sub-insights-picker select{background:#192238;color:#e1e9fa;border:1px solid #34415c;border-radius:8px;padding:7px}.sub-forecast-total{font-size:22px;font-weight:750;color:#e9f0ff;overflow-wrap:anywhere}.sub-forecast-caveat{font-size:11px;color:#9aa8c5;line-height:1.7}.sub-month-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin-top:15px}.sub-month-row{border:1px solid #2a3650;background:#161f32;padding:10px;border-radius:8px;display:flex;flex-direction:column;gap:7px}.sub-month-row span{font-size:11px;color:#8d9bb9}.sub-month-row strong{font-size:12px;overflow-wrap:anywhere}.sub-calendar-week,.sub-calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}.sub-calendar-week{text-align:center;color:#8999b9;font-size:11px;margin-bottom:8px}.sub-calendar-day,.sub-calendar-blank{min-height:68px;min-width:0;border:1px solid #29364c;border-radius:7px;padding:6px}.sub-calendar-blank{border-color:transparent}.sub-calendar-day b{display:block;font-size:12px}.sub-calendar-day small{display:block;color:#a5d8bd;font-size:10px;margin-top:3px}.sub-calendar-day span{display:block;color:#a2b1cc;font-size:10px;overflow-wrap:anywhere}.sub-calendar-day.has-due{border-color:#46745e;background:#193126}@media(max-width:650px){.sub-month-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sub-calendar-day{min-height:54px;padding:4px}.sub-calendar-day span{display:none}}
+
+/* DEV4: compact, touch-friendly private editing panels. */
+.sub-edit-panel{background:#192138;border:1px solid #57518e;border-radius:15px;padding:20px;margin:0 0 22px;scroll-margin-top:16px}
+.sub-edit-panel .sub-section-title{margin-bottom:18px}
+.sub-edit-panel .sub-section-title p{max-width:480px;line-height:1.6}
+.sub-edit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.sub-edit-grid label{display:flex;flex-direction:column;gap:7px;min-width:0;font-size:12px;color:#b6c4de}
+.sub-edit-grid label.sub-wide,.sub-edit-grid .sub-wide{grid-column:1/-1}
+.sub-edit-grid input:not([type=checkbox]),.sub-edit-grid select,.sub-edit-grid textarea{background:#0f1626;border:1px solid #414e6d;color:#f4f6ff;border-radius:9px;padding:11px 12px;width:100%;min-width:0;outline:none;color-scheme:dark}
+.sub-edit-grid textarea{resize:vertical;font:inherit;line-height:1.55}
+.sub-edit-grid input:focus,.sub-edit-grid select:focus,.sub-edit-grid textarea:focus{border-color:#9285ff;box-shadow:0 0 0 2px #9285ff33}
+.sub-edit-grid label.sub-check{display:flex;flex-direction:row;align-items:center;gap:10px;padding:11px 0}
+.sub-form-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px}
+.sub-form-actions button:disabled{opacity:.5;cursor:progress}
+.sub-card-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:15px;padding-top:13px;border-top:1px solid #31394e}
+.sub-card-actions button{padding:8px 10px;background:#27314a;border:1px solid #475473;border-radius:8px;color:#d9e2f6;font-size:11px;font-weight:650}
+.sub-card-actions button:hover,.sub-card-actions button:focus-visible{border-color:#9e92fa;background:#344063}
+.sub-card-actions button.sub-danger{color:#ffb6bb;background:#362b39;border-color:#6b3a49}
+.sub-notice.success{background:#1b3b31;border-color:#367d5c;color:#bdffdc}
+@media(max-width:650px){
+ .sub-edit-panel{padding:15px 12px}
+ .sub-edit-grid{grid-template-columns:1fr}
+ .sub-form-actions{justify-content:stretch}
+ .sub-form-actions button{flex:1}
+ .sub-card-actions button{min-height:38px}
+ .sub-section-title .sub-button{padding:10px 12px;white-space:nowrap}
+}
