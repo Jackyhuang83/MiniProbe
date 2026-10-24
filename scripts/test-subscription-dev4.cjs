@@ -101,7 +101,12 @@ function submit(id){return $(id).events.submit({preventDefault(){}})}
  const deleteCard=$("subCards").children.find(card=>all(card).some(el=>el.tag==="strong"&&el.textContent==="Streaming Plus"));
  click(all(deleteCard).find(n=>n.tag==="button"&&n.textContent==="删除"));
  await flush();
- assert.ok(seen.some(x=>x.url.includes("/manage?id=sub-test")&&x.method==="DELETE"));
+ const deleteRequest=seen.find(x=>x.url.includes("/manage?id=sub-test")&&x.method==="DELETE");
+ assert.ok(deleteRequest,"DELETE request not sent");
+ assert.equal(deleteRequest.options.headers["X-MiniProbe-Subscription-CSRF"],csrf,"DELETE must carry session-bound CSRF even with query parameters");
+ assert.equal(deleteRequest.options.headers["Content-Type"],"application/json","DELETE must carry the JSON media type");
+ assert.equal(items.some(x=>x.id==="sub-test"),false,"DELETE must succeed, not merely be attempted");
+ assert.match($("subNotice").textContent,/已删除订阅/,"DELETE should show successful completion");
 
  // The HTML must actually render the controls that the JS binds.
  const html=fs.readFileSync(path.join(__dirname,"..","cmd/miniprobe-server/web/subscriptions.html"),"utf8");
