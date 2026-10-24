@@ -93,8 +93,13 @@ func TestSubscriptionEmailRecoveryCodeLifecycleAndReset(t *testing.T){
   if cookie.Name==subscriptionEmailResetCookie {resetCookie=cookie}
  }
  if authCookie==nil||resetCookie==nil||!resetCookie.HttpOnly||!resetCookie.Secure{t.Fatal("email login did not issue safe owner and reset sessions")}
- w=httptest.NewRecorder();s.subscriptionEmailVerify(w,good)
- if w.Code!=401{t.Fatal("OTP was accepted more than once")}
+ // Replay the exact same code and cookie in a NEW HTTP request. A reused
+ // Request has an already-consumed Body and only checks malformed JSON (400),
+ // not the one-time challenge invalidation (401).
+ replay:=subscriptionOTPRequest("POST","/email/verify",`{"code":"`+code[1]+`"}`)
+ replay.AddCookie(challenge)
+ w=httptest.NewRecorder();s.subscriptionEmailVerify(w,replay)
+ if w.Code!=401{t.Fatalf("OTP replay accepted or returned unexpected status: %d",w.Code)}
  session:=httptest.NewRequest("GET","https://probe.example/api/v1/subscriptions/session",nil)
  session.AddCookie(authCookie);session.AddCookie(resetCookie)
  w=httptest.NewRecorder();s.subscriptionSession(w,session)
@@ -108,8 +113,11 @@ func TestSubscriptionEmailRecoveryCodeLifecycleAndReset(t *testing.T){
  if w.Code!=200{t.Fatalf("password reset failed %d %s",w.Code,w.Body.String())}
  if !verifyPassword("a changed safe subscription password",s.subscriptions.OwnerPassword){t.Fatal("new owner password did not persist")}
  if s.hasSubscriptionSession(session){t.Fatal("old password sessions remained valid after reset")}
- w=httptest.NewRecorder();s.subscriptionEmailResetPassword(w,reset)
- if w.Code==200{t.Fatal("reset token reusable after resetting password")}
+ secondReset:=subscriptionOTPRequest("PUT","/email/reset-password",`{"password":"second attempt password"}`)
+ secondReset.AddCookie(authCookie);secondReset.AddCookie(resetCookie)
+ secondReset.Header.Set(subscriptionCSRFHeader,s.subscriptionCSRFToken(secondReset))
+ w=httptest.NewRecorder();s.subscriptionEmailResetPassword(w,secondReset)
+ if w.Code!=401{t.Fatalf("revoked reset session returned %d, want unauthorized",w.Code)}
 }
 func TestSubscriptionEmailRecoveryRejectsUnsafeAndExpired(t *testing.T){
  s:=subscriptionTestServer(t)
@@ -140,4 +148,38 @@ func TestSubscriptionEmailRecoveryRejectsUnsafeAndExpired(t *testing.T){
  r=subscriptionOTPRequest("PUT","/email/reset-password",`{"password":"replaced password!"}`)
  w=httptest.NewRecorder();s.subscriptionEmailResetPassword(w,r)
  if w.Code==200{t.Fatal("unauthorized password reset accepted")}
+}
+
+func TestSubscriptionEmailFiveWrongAttemptsExhaustChallenge(t *testing.T){
+ s:=subscriptionTestServer(t)
+ s.subscriptions.OwnerPassword=hashPassword("strict owner password")
+ s.subscriptionEmailConfig=subscriptionMailFixture()
+ var code string
+ s.subscriptionEmailSend=func(_ subscriptionMailConfig,body string)error{
+  matches:=regexp.MustCompile(`code: ([0-9]{8})`).FindStringSubmatch(body)
+  if len(matches)!=2{t.Fatal("mail code missing")}
+  code=matches[1];return nil
+ }
+ w:=httptest.NewRecorder()
+ s.subscriptionEmailStart(w,subscriptionOTPRequest("POST","/email/request",`{}`))
+ if w.Code!=200{t.Fatalf("start failed: %d",w.Code)}
+ var challenge *http.Cookie
+ for _,c:=range w.Result().Cookies(){if c.Name==subscriptionEmailChallengeCookie{challenge=c}}
+ if challenge==nil{t.Fatal("challenge cookie missing")}
+ wrong:="00000000"
+ if wrong==code{wrong="11111111"}
+ for i:=0;i<5;i++{
+  r:=subscriptionOTPRequest("POST","/email/verify",`{"code":"`+wrong+`"}`)
+  r.AddCookie(challenge)
+  w=httptest.NewRecorder();s.subscriptionEmailVerify(w,r)
+  if w.Code!=401&&w.Code!=429{t.Fatalf("wrong attempt %d returned %d",i+1,w.Code)}
+ }
+ // Even if the correct code is subsequently supplied, the fifth attempt
+ // must have destroyed that challenge, independent of IP throttle.
+ r:=subscriptionOTPRequest("POST","/email/verify",`{"code":"`+code+`"}`)
+ r.AddCookie(challenge)
+ w=httptest.NewRecorder();s.subscriptionEmailVerify(w,r)
+ if w.Code==200{t.Fatal("correct code accepted after five incorrect attempts")}
+ s.subscriptionEmailMu.Lock();_,exists:=s.subscriptionEmailChallenges[challenge.Value];s.subscriptionEmailMu.Unlock()
+ if exists{t.Fatal("exhausted OTP challenge still retained")}
 }
