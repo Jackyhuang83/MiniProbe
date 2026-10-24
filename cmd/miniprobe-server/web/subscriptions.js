@@ -6,6 +6,7 @@
   let renewals = [];
   let reminderConfig = {enabled:false,days:[]};
   let csrf = "";
+  let accessMode = false;
   let editingID = "";
   let renewingID = "";
   let busy = false;
@@ -29,7 +30,7 @@
   async function request(path, options={}) {
     const write=path==="/manage"||path.startsWith("/manage?")||path==="/renewals"||path==="/email/reset-password";
     if(write&&!csrf)throw new Error("安全会话未就绪，请重新登录。");
-    const headers={"X-MiniProbe-Request":"1",...(write?{"Content-Type":"application/json","X-MiniProbe-Subscription-CSRF":csrf}:{}),...(options.headers||{})};
+    const headers={"X-MiniProbe-Request":"1","X-Requested-With":"XMLHttpRequest",...(write?{"Content-Type":"application/json","X-MiniProbe-Subscription-CSRF":csrf}:{}),...(options.headers||{})};
     const response=await fetch(api+path,{credentials:"same-origin",cache:"no-store",...options,headers});
     if (!response.ok) {
       const details=(response.status===400||response.status===409)&&typeof response.text==="function"?(await response.text()).trim().slice(0,160):"";
@@ -341,6 +342,18 @@
     try {
       const s=await request("/session");
       csrf=s.authenticated?(s.csrf||""):"";
+      accessMode=s.access_mode===true;
+      if(accessMode){
+        $("subLogin").classList.add("hidden");
+        $("subEmailLogin").classList.add("hidden");
+        $("subEmailToggle").classList.add("hidden");
+        if(!s.authenticated){
+          $("subGateText").textContent="Cloudflare Access 尚未验证登录或 Access 令牌已过期。请重新打开订阅专用域名并输入邮箱验证码。";
+          authView(false);return;
+        }
+        await load();
+        return;
+      }
       $("subEmailToggle").classList.toggle("hidden",!s.email_available||s.authenticated);
       $("subEmailResetSection").classList.toggle("hidden",!s.authenticated||!s.email_reset_allowed);
       if(!s.secure){
@@ -432,6 +445,11 @@
     }catch(e){alertText(e.message);}
   });
   $("subLogout").addEventListener("click",async()=>{
+    if(accessMode){
+      // Cloudflare Access owns this session; don't claim local logout succeeded.
+      window.location.assign("/cdn-cgi/access/logout");
+      return;
+    }
     try{await request("/logout",{method:"POST"});}
     catch(e){alertText(e.message);return;}
     items=[];csrf="";closePanels();$("subEmailResetSection").classList.add("hidden");authView(false);
