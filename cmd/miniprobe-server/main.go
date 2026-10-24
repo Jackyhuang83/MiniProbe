@@ -46,7 +46,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.36-alpha"
+	serverVersion        = "0.4.37-alpha"
 	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -227,6 +227,11 @@ type server struct {
 	subscriptionMu sync.RWMutex
 	subscriptionReminderRunMu sync.Mutex
 	subscriptions subscriptionStore
+	subscriptionEmailMu sync.Mutex
+	subscriptionEmailConfig subscriptionMailConfig
+	subscriptionEmailChallenges map[string]subscriptionEmailChallenge
+	subscriptionEmailSends []time.Time
+	subscriptionEmailSend func(subscriptionMailConfig,string)error
 	secret       []byte
 	dataFile     string
 	downloadsDir string
@@ -335,6 +340,9 @@ func main() {
 	if err := s.loadSubscriptions(); err != nil {
 		log.Fatal("load subscriptions: ", err)
 	}
+	if err := s.loadSubscriptionMail(); err != nil {
+		log.Fatal("load subscription mail settings: ", err)
+	}
 	s.agentAssets = loadAgentAssets(s.downloadsDir)
 	s.initNetworkHistory()
 	s.initTrafficHistory()
@@ -372,6 +380,9 @@ func main() {
 	publicMux.HandleFunc("/api/v1/traffic/dashboard", s.dashboardOnly(s.trafficDashboardAPI))
 	publicMux.HandleFunc("/api/v1/subscriptions/session", s.subscriptionSession)
 	publicMux.HandleFunc("/api/v1/subscriptions/login", s.subscriptionLogin)
+	publicMux.HandleFunc("/api/v1/subscriptions/email/request", s.subscriptionEmailStart)
+	publicMux.HandleFunc("/api/v1/subscriptions/email/verify", s.subscriptionEmailVerify)
+	publicMux.HandleFunc("/api/v1/subscriptions/email/reset-password", s.subscriptionEmailResetPassword)
 	publicMux.HandleFunc("/api/v1/subscriptions/logout", s.subscriptionLogout)
 	publicMux.HandleFunc("/api/v1/subscriptions", s.subscriptionRead)
 	publicMux.HandleFunc("/api/v1/subscriptions/manage", s.subscriptionWebManage)
@@ -1146,6 +1157,7 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/nodes", s.localNodes)
 	mux.HandleFunc("/v1/subscriptions", s.localSubscriptions)
 	mux.HandleFunc("/v1/subscriptions/password", s.localSubscriptionPassword)
+	mux.HandleFunc("/v1/subscriptions/email", s.localSubscriptionMail)
 	mux.HandleFunc("/v1/subscriptions/renewals", s.localSubscriptionRenewals)
 	mux.HandleFunc("/v1/subscriptions/reminders", s.localSubscriptionReminders)
 	mux.HandleFunc("/v1/subscriptions/reminder-override", s.localSubscriptionOverride)
