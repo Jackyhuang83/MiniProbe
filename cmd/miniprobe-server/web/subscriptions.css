@@ -76,3 +76,17 @@ h1,h2,p{margin-top:0}h1{margin-bottom:9px;font-size:28px;letter-spacing:-1px;fon
 /* Keep the list counter and create button visible together on narrow screens. */
 #sub-list>.sub-section-title{flex-wrap:wrap}
 .sub-list-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+
+/* Optional private mailbox recovery. Visible only after local SMTP enrolment. */
+.sub-email-link{display:block;margin:7px auto 0;background:transparent;border:0;color:#b9aeff;font-size:12px;line-height:1.8;text-decoration:underline;text-underline-offset:3px}
+.sub-email-link:hover,.sub-email-link:focus-visible{color:#e3dfff}
+.sub-email-login{border-top:1px solid #313953;margin-top:20px;padding-top:16px}
+.sub-email-login p{text-align:left;margin:0;color:#92a1bb;font-size:12px}
+.sub-email-login #subEmailSend{width:100%;margin-top:13px}
+.sub-email-login form{display:grid;gap:10px}
+.sub-email-reset{margin-bottom:20px;border-color:#675d9d}
+.sub-reset-fields{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px}
+.sub-reset-fields label{display:flex;flex:1;min-width:190px;flex-direction:column;gap:7px;font-size:12px;color:#adb9d3}
+.sub-reset-fields input{width:100%;background:#101829;color:#f5f6ff;border:1px solid #445170;border-radius:8px;padding:11px 12px}
+.sub-reset-fields button{min-height:42px}
+@media(max-width:650px){.sub-reset-fields{flex-direction:column;align-items:stretch}.sub-reset-fields label,.sub-reset-fields button{width:100%;min-width:0}}
