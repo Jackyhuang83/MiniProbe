@@ -149,5 +149,35 @@ function submit(id){return $(id).events.submit({preventDefault(){}})}
    assert.ok(html.includes('id="'+id+'"'),"missing DEV4 element "+id);
  }
  assert.ok(!html.includes("不开放公网写入"),"outdated read-only claim");
- console.log("DEV4 web CRUD, renewal, VPS safety and CSRF header wiring: OK");
+ // On the dedicated Access hostname, a signed identity from the server
+ // immediately opens subscriptions; no MiniProbe password or SMTP fallback.
+ const accessObjects=new Map();
+ const accessDocument={
+   createElement:tag=>new Element(tag),
+   getElementById:id=>{
+     if(!existingIds.has(id))return null;
+     if(!accessObjects.has(id))accessObjects.set(id,new Element("div"));
+     return accessObjects.get(id);
+   }
+ };
+ const access$=id=>accessDocument.getElementById(id);
+ let logoutURL="";
+ const accessWindow={confirm:()=>true,location:{assign:dest=>{logoutURL=dest;}}};
+ const accessRequests=[];
+ const accessFetch=async(url,opts={})=>{
+   accessRequests.push({url,opts});
+   if(url.endsWith("/session"))return {ok:true,json:async()=>({secure:true,enabled:true,authenticated:true,access_mode:true,email_available:false,email_reset_allowed:false,csrf:"access-csrf"})};
+   if(url==="/api/v1/subscriptions")return {ok:true,json:async()=>({items:[subscription,vps],renewals:[],reminders:{enabled:false,days:[]}})};
+   throw new Error("Access session attempted unexpected network call: "+url);
+ };
+ vm.runInNewContext(source,{document:accessDocument,window:accessWindow,fetch:accessFetch,Date,Intl});
+ await flush();
+ assert.equal(access$("subLogin").classes.has("hidden"),true,"Access must hide its second password prompt");
+ assert.equal(access$("subEmailToggle").classes.has("hidden"),true,"Access must hide SMTP mail option");
+ assert.equal(access$("subPrivate").classes.has("hidden"),false,"valid Access identity must open the private list");
+ assert.equal(access$("subCards").children.length,2,"Access identity must load private records");
+ access$("subLogout").events.click();
+ assert.equal(logoutURL,"/cdn-cgi/access/logout","Access logout must be handled by Cloudflare");
+ assert.ok(!accessRequests.some(x=>x.url.endsWith("/login")||x.url.endsWith("/logout")),"Access must not open a local login session");
+ console.log("DEV4 + Cloudflare Access browser auth/UI/CSRF contract: OK");
 })().catch(err=>{console.error(err);process.exitCode=1});
