@@ -9,7 +9,6 @@ import (
  "encoding/base64"
  "encoding/binary"
  "encoding/hex"
- "encoding/json"
  "fmt"
  "net/http"
  "regexp"
