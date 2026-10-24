@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rsa"
 	"bufio"
 	"bytes"
 	"context"
@@ -46,7 +47,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.37-alpha"
+	serverVersion        = "0.4.38-alpha"
 	agentTargetVersion   = "0.4.28-alpha"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -227,6 +228,11 @@ type server struct {
 	subscriptionMu sync.RWMutex
 	subscriptionReminderRunMu sync.Mutex
 	subscriptions subscriptionStore
+	subscriptionAccessMu sync.RWMutex
+	subscriptionAccessFetchMu sync.Mutex
+	subscriptionAccess subscriptionAccessConfig
+	subscriptionAccessKeys map[string]*rsa.PublicKey
+	subscriptionAccessKeysUntil time.Time
 	subscriptionEmailMu sync.Mutex
 	subscriptionEmailConfig subscriptionMailConfig
 	subscriptionEmailChallenges map[string]subscriptionEmailChallenge
@@ -342,6 +348,9 @@ func main() {
 	}
 	if err := s.loadSubscriptionMail(); err != nil {
 		log.Fatal("load subscription mail settings: ", err)
+	}
+	if err := s.loadSubscriptionAccess(); err != nil {
+		log.Fatal("load subscription Cloudflare Access settings: ", err)
 	}
 	s.agentAssets = loadAgentAssets(s.downloadsDir)
 	s.initNetworkHistory()
@@ -1158,6 +1167,7 @@ func (s *server) startAdminSocket() error {
 	mux.HandleFunc("/v1/subscriptions", s.localSubscriptions)
 	mux.HandleFunc("/v1/subscriptions/password", s.localSubscriptionPassword)
 	mux.HandleFunc("/v1/subscriptions/email", s.localSubscriptionMail)
+	mux.HandleFunc("/v1/subscriptions/access", s.localSubscriptionAccess)
 	mux.HandleFunc("/v1/subscriptions/renewals", s.localSubscriptionRenewals)
 	mux.HandleFunc("/v1/subscriptions/reminders", s.localSubscriptionReminders)
 	mux.HandleFunc("/v1/subscriptions/reminder-override", s.localSubscriptionOverride)
