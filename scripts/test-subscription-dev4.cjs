@@ -17,6 +17,7 @@ const objects=new Map();
 const document={
  createElement:tag=>new Element(tag),
  getElementById:id=>{
+  if(!existingIds.has(id))return null;
   if(!objects.has(id))objects.set(id,new Element("div"));
   return objects.get(id);
  }
@@ -48,6 +49,16 @@ const fetch=async (url,opts={})=>{
 };
 const window={confirm:()=>true};
 const source=fs.readFileSync(path.join(__dirname,"..","cmd/miniprobe-server/web/subscriptions.js"),"utf8");
+// Contract regression: only use IDs that exist in the actual HTML template.
+// Previously subShown was removed from markup while render() still used it;
+// the permissive fake DOM silently created the element and CI stayed green.
+const htmlTemplate=fs.readFileSync(path.join(__dirname,"..","cmd/miniprobe-server/web/subscriptions.html"),"utf8");
+const htmlIds=[...htmlTemplate.matchAll(/\\bid="([^"]+)"/g)].map(match=>match[1]);
+const existingIds=new Set(htmlIds);
+assert.equal(existingIds.size,htmlIds.length,"duplicate subscription HTML IDs");
+const usedIds=new Set([...source.matchAll(/\\$\\("([^"]+)"\\)/g)].map(match=>match[1]));
+for(const id of usedIds)assert.ok(existingIds.has(id),"JavaScript references missing HTML id: "+id);
+assert.ok(existingIds.has("subShown"),"DEV4 subscription count must be rendered");
 vm.runInNewContext(source,{document,window,fetch,Date,Intl});
 const flush=async()=>{for(let i=0;i<8;i++)await new Promise(resolve=>setImmediate(resolve));};
 function all(node){return [node,...(node.children||[]).flatMap(all)]}

@@ -72,3 +72,7 @@ h1,h2,p{margin-top:0}h1{margin-bottom:9px;font-size:28px;letter-spacing:-1px;fon
  .sub-card-actions button{min-height:38px}
  .sub-section-title .sub-button{padding:10px 12px;white-space:nowrap}
 }
+
+/* Keep the list counter and create button visible together on narrow screens. */
+#sub-list>.sub-section-title{flex-wrap:wrap}
+.sub-list-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}

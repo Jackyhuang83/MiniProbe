@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#090d17">
   <title>MiniProbe · 订阅管理中心</title>
-  <link rel="stylesheet" href="/ui/0.4.35-alpha/subscriptions.css">
+  <link rel="stylesheet" href="/ui/0.4.36-alpha/subscriptions.css">
 </head>
 <body>
 <div class="sub-shell">
   <aside class="sub-side">
-    <a class="sub-brand" href="/ui/0.4.35-alpha/"><span class="sub-logo">M</span><span>MiniProbe<small>个人订阅中心</small></span></a>
+    <a class="sub-brand" href="/ui/0.4.36-alpha/"><span class="sub-logo">M</span><span>MiniProbe<small>个人订阅中心</small></span></a>
     <div class="sub-side-caption">工作空间</div>
     <nav aria-label="订阅中心导航">
-      <a class="sub-nav-active" href="/ui/0.4.35-alpha/subscriptions.html"><span>◫</span> 订阅总览</a>
+      <a class="sub-nav-active" href="/ui/0.4.36-alpha/subscriptions.html"><span>◫</span> 订阅总览</a>
       <a href="#sub-list"><span>▤</span> 我的订阅</a>
-      <a href="/ui/0.4.35-alpha/"><span>▦</span> 监控 Dashboard</a>
-      <a href="/ui/0.4.35-alpha/traffic.html"><span>↗</span> 流量统计</a>
+      <a href="/ui/0.4.36-alpha/"><span>▦</span> 监控 Dashboard</a>
+      <a href="/ui/0.4.36-alpha/traffic.html"><span>↗</span> 流量统计</a>
     </nav>
     <div class="sub-side-note">DEV4 · 订阅网页管理<br>新增、编辑、删除与记录续费均可在手机网页完成；密码管理和私有备份仍使用本地菜单。</div>
   </aside>
@@ -45,7 +45,7 @@
         <article class="sub-kpi"><span>自动关联 VPS</span><strong id="subVPS">—</strong><small>直接读取节点费用与到期日</small></article>
       </div>
       <section class="sub-panel" id="sub-list">
-        <div class="sub-section-title"><div><h2>我的订阅</h2><p>手动订阅可直接管理 · VPS 节点信息自动同步</p></div><button id="subAdd" class="sub-button sub-primary" type="button">＋ 添加订阅</button></div>
+        <div class="sub-section-title"><div><h2>我的订阅</h2><p>手动订阅可直接管理 · VPS 节点信息自动同步</p></div><div class="sub-list-actions"><span id="subShown" class="sub-count" aria-live="polite">—</span><button id="subAdd" class="sub-button sub-primary" type="button">＋ 添加订阅</button></div></div>
         <div class="sub-toolbar">
           <label class="sub-search"><span aria-hidden="true">⌕</span><input id="subQuery" type="search" placeholder="搜索订阅名称或标签…" aria-label="搜索订阅"></label>
           <select id="subCategory" aria-label="按分类筛选">
@@ -115,6 +115,6 @@
     </div>
   </main>
 </div>
-<script src="/ui/0.4.35-alpha/subscriptions.js" defer></script>
+<script src="/ui/0.4.36-alpha/subscriptions.js" defer></script>
 </body>
 </html>
