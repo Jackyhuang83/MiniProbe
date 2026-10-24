@@ -301,8 +301,9 @@ func (s *server) subscriptionSession(w http.ResponseWriter,r *http.Request) {
  s.subscriptionMu.RLock();enabled:=s.subscriptions.OwnerPassword.Hash!=""
  s.subscriptionMu.RUnlock()
  secure:=requestIsTLS(r)
- authenticated:=secure&&s.hasSubscriptionSession(r)
- state:=map[string]any{"enabled":enabled,"authenticated":authenticated,"secure":secure,"email_available":enabled&&s.emailRecoveryAvailable()}
+ authenticated:=secure&&s.subscriptionAuthorized(r)
+ accessMode:=s.subscriptionAccessEnabled(r)
+ state:=map[string]any{"enabled":enabled||accessMode,"authenticated":authenticated,"secure":secure,"email_available":!accessMode&&enabled&&s.emailRecoveryAvailable(),"access_mode":accessMode}
  if authenticated {state["email_reset_allowed"]=s.hasSubscriptionEmailReset(r)}
  if authenticated {state["csrf"]=s.subscriptionCSRFToken(r)}
  writeJSON(w,200,state)
@@ -311,6 +312,7 @@ func (s *server) subscriptionLogin(w http.ResponseWriter,r *http.Request) {
  noStore(w)
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",405);return}
  if !requestIsTLS(r){http.Error(w,"订阅私有访问要求 HTTPS",403);return}
+ if s.subscriptionAccessEnabled(r){http.Error(w,"此域名由 Cloudflare Access 认证，请通过 Cloudflare 登录",403);return}
  if !validSameOriginMutation(r){http.Error(w,"forbidden",403);return}
  ip:=remoteIP(r.RemoteAddr)
  if !s.loginAllowed("subscriptions:"+ip){http.Error(w,"too many attempts",429);return}
@@ -338,7 +340,7 @@ func (s *server) subscriptionLogout(w http.ResponseWriter,r *http.Request) {
 func (s *server) subscriptionRead(w http.ResponseWriter,r *http.Request) {
  noStore(w)
  if r.Method!=http.MethodGet{http.Error(w,"read-only",405);return}
- if !requestIsTLS(r)||!s.hasSubscriptionSession(r){http.Error(w,"unauthorized",401);return}
+ if !requestIsTLS(r)||!s.subscriptionAuthorized(r){http.Error(w,"unauthorized",401);return}
  data:=s.subscriptionOwnerData()
  data["server_date"]=time.Now().UTC().Format("2006-01-02")
  writeJSON(w,200,data)

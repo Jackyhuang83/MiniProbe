@@ -41,6 +41,7 @@ func (s *server) emailRecoveryAvailable()bool{
 }
 func (s *server) subscriptionEmailStart(w http.ResponseWriter,r *http.Request){
  noStore(w)
+ if s.subscriptionAccessEnabled(r){http.Error(w,"此域名使用 Cloudflare Access 邮箱登录",403);return}
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",405);return}
  if !requestIsTLS(r)||!subscriptionWebOriginOK(r)||r.Header.Get("Content-Type")!="application/json"{
   http.Error(w,"forbidden",403);return
@@ -100,6 +101,7 @@ func (s *server) hasSubscriptionEmailReset(r *http.Request)bool{
 }
 func (s *server) subscriptionEmailVerify(w http.ResponseWriter,r *http.Request){
  noStore(w)
+ if s.subscriptionAccessEnabled(r){http.Error(w,"此域名使用 Cloudflare Access 邮箱登录",403);return}
  if r.Method!=http.MethodPost{http.Error(w,"method not allowed",405);return}
  if !requestIsTLS(r)||!subscriptionWebOriginOK(r)||r.Header.Get("Content-Type")!="application/json"{
   http.Error(w,"forbidden",403);return

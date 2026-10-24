@@ -123,7 +123,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
   fmt.Println(" 8. Telegram 到期提醒（默认关闭）")
   fmt.Println(" 9. 单条订阅提醒设置")
   fmt.Println("10. 私有账本备份 / 恢复")
-  fmt.Println("11. 邮箱验证码 / SMTP 恢复设置")
+  fmt.Println("11. 邮箱登录设置（Cloudflare Access / SMTP）")
   fmt.Println(" 0. 返回主菜单")
   switch prompt(r,"请选择: "){
   case "1":
@@ -166,7 +166,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
   case "8":manageSubscriptionReminders(r,c)
   case "9":manageSubscriptionOverride(r,c)
   case "10":manageSubscriptionBackups(r,c)
-  case "11":manageSubscriptionEmail(r,c)
+  case "11":manageSubscriptionLoginOptions(r,c)
   case "0":return
   default:fmt.Println("无效选项。")
   }
@@ -347,6 +347,61 @@ func manageSubscriptionEmail(r *bufio.Reader,c *localClient){
   case "2":
    if prompt(r,"关闭邮箱验证码登录，输入 DISABLE 确认: ")!="DISABLE"{fmt.Println("已取消");continue}
    if err:=c.request(http.MethodDelete,"/v1/subscriptions/email",map[string]string{"confirm":"DISABLE"},nil);err!=nil{fmt.Println("关闭失败:",err)}else{fmt.Println("邮箱恢复已关闭，SMTP 配置已清除。")}
+  case "0":return
+  default:fmt.Println("无效选项")
+  }
+ }
+}
+
+
+func manageSubscriptionLoginOptions(r *bufio.Reader,c *localClient){
+ for{
+  fmt.Println("\n========== 订阅邮箱登录方式 ==========")
+  fmt.Println(" 1. Cloudflare Access 邮箱验证码（推荐，无需 SMTP）")
+  fmt.Println(" 2. SMTP 自发验证码（原功能，可选）")
+  fmt.Println(" 0. 返回")
+  switch prompt(r,"请选择: "){
+  case "1":manageSubscriptionAccess(r,c)
+  case "2":manageSubscriptionEmail(r,c)
+  case "0":return
+  default:fmt.Println("无效选项")
+  }
+ }
+}
+func manageSubscriptionAccess(r *bufio.Reader,c *localClient){
+ for{
+  var current subscriptionAccessConfig
+  if err:=c.request(http.MethodGet,"/v1/subscriptions/access",nil,&current);err!=nil{
+   fmt.Println("查询 Access 设置失败:",err);return
+  }
+  fmt.Println("\n========== Cloudflare Access 邮箱登录 ==========")
+  if current.Enabled{
+   fmt.Printf("已启用：专用域名=%s | Team=%s | AUD=%s | 邮箱=%s\n",current.Hostname,current.Team,current.Audience,current.Email)
+  }else{fmt.Println("状态：未启用；独立密码和可选 SMTP 登录不受影响。")}
+  fmt.Println("说明：先在 Cloudflare 建立独立订阅域名和 Access Self-hosted 应用，并设置仅允许指定邮箱。")
+  fmt.Println("      同一 Tunnel 可新增一个 Public hostname 指向相同 MiniProbe Server 服务；切勿为 Agent 域名开启 Access。")
+  fmt.Println(" 1. 启用 / 更换 Cloudflare Access 设置")
+  fmt.Println(" 2. 禁用本机 Cloudflare Access 配置")
+  fmt.Println(" 0. 返回")
+  switch prompt(r,"请选择: "){
+  case "1":
+   host:=strings.ToLower(prompt(r,"独立订阅域名（如 subs.example.com）: "))
+   team:=strings.ToLower(prompt(r,"Cloudflare Zero Trust Team 名称（不含 .cloudflareaccess.com）: "))
+   aud:=prompt(r,"Access 应用 AUD（不是 API Token）: ")
+   email:=strings.ToLower(prompt(r,"唯一允许的访问邮箱: "))
+   config:=subscriptionAccessConfig{Enabled:true,Hostname:host,Team:team,Audience:aud,Email:email}
+   if err:=validateSubscriptionAccess(config);err!=nil{fmt.Println("配置无效:",err);continue}
+   fmt.Println("注意：这仅配置 MiniProbe 验证 Access 身份，不会自动创建 Cloudflare DNS/Tunnel/Access 规则。")
+   if prompt(r,"已在 Cloudflare 设置好域名 + 仅限该邮箱的 Allow 规则？输入 ENABLE 确认: ")!="ENABLE"{fmt.Println("取消");continue}
+   req:=struct{subscriptionAccessConfig;Confirm string `json:"confirm"`}{config,"ENABLE"}
+   if err:=c.request(http.MethodPut,"/v1/subscriptions/access",req,nil);err!=nil{fmt.Println("启用失败（原配置不变）:",err)}else{
+    fmt.Println("已启用 Access JWT 严格验证。请打开 https://"+host+"/subscriptions.html 测试邮箱验证登录。")
+   }
+  case "2":
+   if prompt(r,"禁用后仍可使用原来的订阅密码，输入 DISABLE 确认: ")!="DISABLE"{continue}
+   if err:=c.request(http.MethodDelete,"/v1/subscriptions/access",map[string]string{"confirm":"DISABLE"},nil);err!=nil{
+    fmt.Println("禁用失败:",err)
+   }else{fmt.Println("已禁用本机 Access 登录；不自动修改 Cloudflare 的 Access 应用。")}
   case "0":return
   default:fmt.Println("无效选项")
   }
