@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前开发目标：`v0.4.33-alpha`（Docker 菜单 8 Tunnel 宿主机安全管理）；上一版：`v0.4.32-alpha`
+当前版本：`v0.4.39-alpha`（双栈节点可选 IPv6 三网探测）；上一版：`v0.4.38-alpha`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
@@ -145,7 +145,7 @@ http://[2001:db8::10]:28888
 https://probe.example.com
 ```
 
-IPv6-only Agent 会自动改用三大运营商官方站点作为 IPv6 线路端点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 解析 AAAA 后强制使用 `tcp6` 连接 TCP/80，仅统计 TCP connect RTT，不发送 HTTP 请求、不进行 TLS 握手。Dashboard 行名显示 `IPv6电信 / IPv6联通 / IPv6移动`，协议显示 `TCP`。双栈节点仍沿用所选城市的 IPv4 基准。
+IPv6-only Agent 会自动改用三大运营商官方站点作为 IPv6 线路端点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 解析 AAAA 后强制使用 `tcp6` 连接 TCP/80，仅统计 TCP connect RTT，不发送 HTTP 请求、不进行 TLS 握手。Dashboard 行名显示 `IPv6电信 / IPv6联通 / IPv6移动`，协议显示 `TCP`。双栈节点默认仍沿用所选城市的 IPv4 基准；如需只测 IPv6，可通过 SSH 管理菜单 3 为指定节点单独设置。
 
 ---
 

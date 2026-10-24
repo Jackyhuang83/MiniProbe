@@ -1,4 +1,4 @@
-const UI_VERSION='0.4.38-alpha';
+const UI_VERSION='0.4.39-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
