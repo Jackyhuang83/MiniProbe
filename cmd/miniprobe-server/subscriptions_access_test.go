@@ -7,7 +7,6 @@ import (
  "crypto/sha256"
  "encoding/base64"
  "encoding/json"
- "fmt"
  "math/big"
  "net/http"
  "net/http/httptest"
@@ -93,8 +92,11 @@ func TestSubscriptionAccessRS256OwnerIsolationAndCSRF(t *testing.T){
   if w.Code!=401{t.Errorf("%s: private ledger exposed (HTTP %d)",tc.name,w.Code)}
  }
  // Tampered signature must be rejected even if all decoded claims look right.
- tampered:=token[:len(token)-1]+"A"
- if tampered==token{tampered=token[:len(token)-1]+"B"}
+ segments:=strings.Split(token,".")
+ signature:=[]byte(segments[2])
+ if signature[0]=='A'{signature[0]='B'}else{signature[0]='A'}
+ segments[2]=string(signature)
+ tampered:=strings.Join(segments,".")
  if s.subscriptionAuthorized(accessTestRequest("GET","/api/v1/subscriptions",cfg.Hostname,tampered,"")){t.Fatal("tampered JWT accepted")}
  // A JWT validated on the Access hostname can manage a subscription only
  // when the origin and CSRF token match that exact JWT.
@@ -138,5 +140,4 @@ func TestSubscriptionAccessJWKFiltering(t *testing.T){
  if keys["test-key"].E!=public.E||keys["test-key"].N.Cmp(public.N)!=0{t.Fatal("parsed JWK key mismatch")}
  _,err=accessJSONPublicKeys([]byte(`{"keys":[{"kid":"x","kty":"oct","alg":"HS256","n":"AA","e":"AQAB"}]}`))
  if err==nil{t.Fatal("HMAC JWK accepted as RSA")}
- _=fmt.Sprintf
 }
