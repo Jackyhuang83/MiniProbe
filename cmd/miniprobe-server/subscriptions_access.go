@@ -11,7 +11,6 @@ import (
  "encoding/base64"
  "encoding/json"
  "errors"
- "fmt"
  "io"
  "math/big"
  "net"
@@ -176,8 +175,14 @@ func (s *server) subscriptionAccessKey(c subscriptionAccessConfig,kid string)*rs
  keys,err:=s.fetchSubscriptionAccessKeys(c)
  s.subscriptionAccessMu.Lock()
  defer s.subscriptionAccessMu.Unlock()
- if err==nil && s.subscriptionAccess==c{s.subscriptionAccessKeys=keys;s.subscriptionAccessKeysUntil=time.Now().Add(10*time.Minute)}
- if err!=nil{s.subscriptionAccessKeysUntil=time.Now().Add(time.Minute)}
+ if err!=nil{
+  s.subscriptionAccessKeys=nil
+  s.subscriptionAccessKeysUntil=time.Now().Add(time.Minute)
+  return nil
+ }
+ if s.subscriptionAccess!=c{return nil}
+ s.subscriptionAccessKeys=keys
+ s.subscriptionAccessKeysUntil=time.Now().Add(10*time.Minute)
  return s.subscriptionAccessKeys[kid]
 }
 func (s *server) subscriptionAccessValid(r *http.Request,c subscriptionAccessConfig)bool{
@@ -234,4 +239,3 @@ func (s *server) subscriptionAccessCSRF(r *http.Request)string{
 func (s *server) subscriptionAccessEnabled(r *http.Request)bool{
  _,enabled:=s.subscriptionAccessForHost(r);return enabled
 }
-var _=fmt.Sprintf
