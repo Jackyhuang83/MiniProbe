@@ -302,7 +302,8 @@ func (s *server) subscriptionSession(w http.ResponseWriter,r *http.Request) {
  s.subscriptionMu.RUnlock()
  secure:=requestIsTLS(r)
  authenticated:=secure&&s.hasSubscriptionSession(r)
- state:=map[string]any{"enabled":enabled,"authenticated":authenticated,"secure":secure}
+ state:=map[string]any{"enabled":enabled,"authenticated":authenticated,"secure":secure,"email_available":enabled&&s.emailRecoveryAvailable()}
+ if authenticated {state["email_reset_allowed"]=s.hasSubscriptionEmailReset(r)}
  if authenticated {state["csrf"]=s.subscriptionCSRFToken(r)}
  writeJSON(w,200,state)
 }
