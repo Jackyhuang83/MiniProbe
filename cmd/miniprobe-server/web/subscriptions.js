@@ -27,13 +27,13 @@
   function alertText(message,success=false) {$("subNotice").textContent=message;$("subNotice").classList.remove("hidden");$("subNotice").classList.toggle("success",success);}
   function clearAlert() {$("subNotice").classList.add("hidden");$("subNotice").classList.remove("success");$("subNotice").textContent="";}
   async function request(path, options={}) {
-    const write=path==="/manage"||path.startsWith("/manage?")||path==="/renewals";
+    const write=path==="/manage"||path.startsWith("/manage?")||path==="/renewals"||path==="/email/reset-password";
     if(write&&!csrf)throw new Error("安全会话未就绪，请重新登录。");
     const headers={"X-MiniProbe-Request":"1",...(write?{"Content-Type":"application/json","X-MiniProbe-Subscription-CSRF":csrf}:{}),...(options.headers||{})};
     const response=await fetch(api+path,{credentials:"same-origin",cache:"no-store",...options,headers});
     if (!response.ok) {
       const details=(response.status===400||response.status===409)&&typeof response.text==="function"?(await response.text()).trim().slice(0,160):"";
-      throw new Error(details||({401:"访问未授权，请重新登录",403:"安全校验失败：请确认 HTTPS、登录状态及页面未过期",404:"记录不存在，请刷新页面",429:"尝试次数过多，请稍后再试"}[response.status]||"服务器请求失败 ("+response.status+")"));
+      throw new Error(details||({401:"访问未授权，请重新登录",403:"安全校验失败：请确认 HTTPS、登录状态及页面未过期",404:"记录不存在，请刷新页面",429:"请求过于频繁，请稍后再试",503:"SMTP 发送失败，请使用本地管理菜单检查邮件设置"}[response.status]||"服务器请求失败 ("+response.status+")"));
     }
     return response.json();
   }
@@ -341,6 +341,8 @@
     try {
       const s=await request("/session");
       csrf=s.authenticated?(s.csrf||""):"";
+      $("subEmailToggle").classList.toggle("hidden",!s.email_available||s.authenticated);
+      $("subEmailResetSection").classList.toggle("hidden",!s.authenticated||!s.email_reset_allowed);
       if(!s.secure){
         authView(false);
         $("subGateText").textContent="当前连接不是安全的 HTTPS。为了保护私人费用信息，订阅中心拒绝通过 HTTP 登录或读取。请使用已配置的 HTTPS Tunnel。";
@@ -350,28 +352,89 @@
       if(!s.enabled){
         $("subGateText").textContent="尚未设置独立订阅密码。Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6 设置（可通过 Docker 管理脚本打开）；原生版请在 SSH 执行 miniprobe → 15 → 6。设置后通过 HTTPS 登录。";
         $("subLogin").classList.add("hidden");
+        $("subEmailToggle").classList.add("hidden");
         authView(false);return;
       }
       if(s.authenticated)await load();
       else authView(false);
     }catch(e){authView(false);alertText(e.message);}
   }
+  async function completeOwnerLogin(){
+    const session=await request("/session");
+    csrf=session.authenticated?(session.csrf||""):"";
+    if(!csrf)throw new Error("未取得安全写入令牌，请刷新后重试。");
+    await load();
+    $("subEmailResetSection").classList.toggle("hidden",!session.email_reset_allowed);
+    $("subEmailLogin").classList.add("hidden");
+    $("subEmailToggle").classList.add("hidden");
+  }
+  $("subEmailToggle").addEventListener("click",()=>{
+    $("subLogin").classList.add("hidden");
+    $("subEmailToggle").classList.add("hidden");
+    $("subEmailLogin").classList.remove("hidden");
+    clearAlert();
+  });
+  $("subEmailBack").addEventListener("click",()=>{
+    $("subEmailLogin").classList.add("hidden");
+    $("subLogin").classList.remove("hidden");
+    $("subEmailToggle").classList.remove("hidden");
+    clearAlert();
+  });
+  $("subEmailSend").addEventListener("click",async()=>{
+    const button=$("subEmailSend");
+    if(button.disabled)return;
+    button.disabled=true;
+    clearAlert();
+    try{
+      await request("/email/request",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+      alertText("邮件已请求发送。请查看预绑定邮箱（包括垃圾邮件）。验证码 10 分钟内有效。",true);
+    }catch(e){alertText(e.message);}
+    finally{button.disabled=false;}
+  });
+  $("subEmailVerifyForm").addEventListener("submit",async event=>{
+    event.preventDefault();clearAlert();
+    const button=$("subEmailVerify");
+    if(button.disabled)return;
+    button.disabled=true;
+    try{
+      await request("/email/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:$("subEmailCode").value.trim()})});
+      $("subEmailCode").value="";
+      await completeOwnerLogin();
+      alertText("邮箱验证成功，已登录订阅中心。",true);
+    }catch(e){alertText(e.message);}
+    finally{button.disabled=false;}
+  });
+  $("subEmailResetForm").addEventListener("submit",async event=>{
+    event.preventDefault();clearAlert();
+    const pass=$("subEmailNewPassword").value;
+    if(pass!==$("subEmailNewPasswordConfirm").value){alertText("两次密码不一致");return;}
+    if(pass.length<12||pass.length>128){alertText("密码必须为 12–128 字符");return;}
+    const button=$("subEmailResetSubmit");
+    if(button.disabled)return;
+    button.disabled=true;
+    try{
+      await request("/email/reset-password",{method:"PUT",body:JSON.stringify({password:pass})});
+      $("subEmailNewPassword").value="";$("subEmailNewPasswordConfirm").value="";
+      $("subEmailResetSection").classList.add("hidden");
+      csrf="";items=[];closePanels();authView(false);
+      $("subLogin").classList.remove("hidden");
+      alertText("订阅密码已重设，原登录会话均已失效，请使用新密码登录。",true);
+    }catch(e){alertText(e.message);}
+    finally{button.disabled=false;}
+  });
   $("subLogin").addEventListener("submit",async event=>{
     event.preventDefault();clearAlert();
     const password=$("subPassword").value;
     try {
       await request("/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password})});
       $("subPassword").value="";
-      const session=await request("/session");
-      csrf=session.authenticated?(session.csrf||""):"";
-      if(!csrf)throw new Error("未取得安全写入令牌，请刷新后重试。");
-      await load();
+      await completeOwnerLogin();
     }catch(e){alertText(e.message);}
   });
   $("subLogout").addEventListener("click",async()=>{
     try{await request("/logout",{method:"POST"});}
     catch(e){alertText(e.message);return;}
-    items=[];csrf="";closePanels();authView(false);
+    items=[];csrf="";closePanels();$("subEmailResetSection").classList.add("hidden");authView(false);
   });
   for(const id of ["subQuery","subCategory","subStatus"])$(id).addEventListener(id==="subQuery"?"input":"change",render);
   const currentYear=new Date().getFullYear();
