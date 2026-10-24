@@ -27,7 +27,7 @@
   function alertText(message,success=false) {$("subNotice").textContent=message;$("subNotice").classList.remove("hidden");$("subNotice").classList.toggle("success",success);}
   function clearAlert() {$("subNotice").classList.add("hidden");$("subNotice").classList.remove("success");$("subNotice").textContent="";}
   async function request(path, options={}) {
-    const write=path==="/manage"||path==="/renewals";
+    const write=path==="/manage"||path.startsWith("/manage?")||path==="/renewals";
     if(write&&!csrf)throw new Error("安全会话未就绪，请重新登录。");
     const headers={"X-MiniProbe-Request":"1",...(write?{"Content-Type":"application/json","X-MiniProbe-Subscription-CSRF":csrf}:{}),...(options.headers||{})};
     const response=await fetch(api+path,{credentials:"same-origin",cache:"no-store",...options,headers});
