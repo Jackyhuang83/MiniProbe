@@ -663,6 +663,9 @@ func applySignedProbePolicy(nodeID string, key ed25519.PublicKey, signed *common
 	if p.Protocol != "icmp" && p.Protocol != "tcp" && p.Protocol != "udp" {
 		return false, errors.New("invalid probe protocol")
 	}
+	if p.Family != "" && p.Family != "auto" && p.Family != "ipv6" {
+		return false, errors.New("invalid probe family")
+	}
 	if net.ParseIP(p.Telecom) == nil || net.ParseIP(p.Unicom) == nil || net.ParseIP(p.Mobile) == nil {
 		return false, errors.New("invalid probe target")
 	}
@@ -1095,7 +1098,8 @@ func probeConfigFromPolicyForFamilies(p common.ProbePolicy, has4, has6 bool) pro
 	// the actual carrier path. For IPv6-only nodes we resolve AAAA, force tcp6,
 	// and measure only the TCP/80 connect RTT. No HTTP or TLS transaction is part
 	// of the measurement. Dual-stack nodes keep the established IPv4 city tests.
-	if !has4 && has6 {
+	// Explicitly selected IPv6 on a dual-stack VPS must never fall back to IPv4.
+	if (!has4 && has6) || p.Family == "ipv6" {
 		city, telecom, unicom, mobile = builtInIPv6ProbeTargets()
 		protocol = "tcp"
 		network = "tcp6"

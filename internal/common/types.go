@@ -158,6 +158,7 @@ type ProbePolicy struct {
 	Enabled  bool   `json:"enabled"`
 	Region   string `json:"region"`
 	Protocol string `json:"protocol"`
+	Family   string `json:"family,omitempty"` // auto (default), ipv6; signed per-node preference
 	Telecom  string `json:"telecom"`
 	Unicom   string `json:"unicom"`
 	Mobile   string `json:"mobile"`

@@ -302,7 +302,7 @@ SSH 执行 `miniprobe`，进入 `11. 国内线路测试` 后可全局选择：
 
 预设目标使用对应城市运营商 DNS 节点；TCP / UDP 使用 53 端口，ICMP 使用 Echo Request。不同协议的“失败率/丢包”语义不同，因此 Dashboard 同时保留协议标签，避免把 TCP/UDP 失败率误读成 ICMP packet loss。
 
-IPv4-only 和双栈 Agent 继续使用所选城市的 IPv4 运营商 DNS 目标。IPv6-only Agent 自动改用运营商官方站点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 只解析这些域名的 AAAA，并强制通过 `tcp6` 连接 TCP/80；计时从 DNS 解析完成后开始，因此 Dashboard 记录的是 TCP connect RTT，而不是本地 DNS 查询耗时。网站的 HTTP 301/302/403/412 或 TLS 行为不参与线路判定。由于这些站点可能使用运营商 CDN/WAF，不冒充北京 / 上海 / 广州城市节点，Dashboard 行名仍显示 `IPv6电信 / IPv6联通 / IPv6移动`。双栈节点继续沿用原有城市 IPv4 测试，避免改变既有基准。
+IPv4-only 和双栈 Agent 默认继续使用所选城市的 IPv4 运营商 DNS 目标。双栈节点也可通过 Server SSH 菜单 `3. 修改节点 / 流量策略 → 线路测试 IP 版本 → 2. 仅 IPv6`，单独强制沿用 IPv6-only Agent 的探测方式；该设置经签名策略同步，不会关闭 VPS IPv4 出站。IPv6-only Agent 自动改用运营商官方站点：电信 `www.189.cn`、联通 `www.chinaunicom.com.cn`、移动 `www.10086.cn`。Agent 只解析这些域名的 AAAA，并强制通过 `tcp6` 连接 TCP/80；计时从 DNS 解析完成后开始，因此 Dashboard 记录的是 TCP connect RTT，而不是本地 DNS 查询耗时。网站的 HTTP 301/302/403/412 或 TLS 行为不参与线路判定。由于这些站点可能使用运营商 CDN/WAF，不冒充北京 / 上海 / 广州城市节点，Dashboard 行名仍显示 `IPv6电信 / IPv6联通 / IPv6移动`。双栈节点继续沿用原有城市 IPv4 测试，避免改变既有基准。
 
 丢包 / 失败率的显示口径与右侧 20 个历史块一致，不再只显示“最后一轮 4 个包”的瞬时结果。窗口未填满时按已经实际执行的探测次数计算。ICMP 仍按每轮 4 个 Echo Request 统计；TCP / UDP 则对应 4 次连接 / DNS 查询尝试。
 
@@ -692,7 +692,7 @@ ASN 路由变化需连续两次确认；最多保留 50 条变化/恢复事件�
 线路详情将关键 ASN 翻译为 CN2 / 163、CUII / 9929 / 4837、CMIN2 / CMI / CMNET，并在路由事件中显示可读线路变化
 原始 traceroute hop IP 只在 Agent -> Server 处理过程中短暂存在，不写入主数据库、线路历史或 Dashboard
 线路基准只能通过 SSH 菜单 11 重置，Dashboard 继续保持只读
-IPv4-only / 双栈节点继续沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议
+IPv4-only / 双栈节点默认沿用原北京 / 上海 / 广州三网测试与用户选择的 ICMP / TCP / UDP 协议；双栈节点可在 SSH 菜单 3 单独选择「仅 IPv6」，网页三网 RTT、长期趋势及 ASN 路由均按 IPv6-only 的 TCP6 模式显示。需要更新 Server 与目标 Agent 才能生效；无法使用 IPv6 时显示失败，不回退 IPv4
 Server 本机 Agent 检测到本机 MiniProbe Server 后固定走 http://127.0.0.1:28888，上报不再依赖公网 DNS / Cloudflare Tunnel 回环
 一旦确认运行在 Server 主机，本机 Agent 不再回退公网 Endpoint，避免 DNS / Tunnel 故障再次影响自恢复
 Agent 上报网络/DNS失败后重建 HTTP Transport，增强断网恢复能力

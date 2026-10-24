@@ -135,6 +135,50 @@ func TestProbeConfigIPv6OnlyUsesCarrierWebsiteTCP6(t *testing.T) {
 	}
 }
 
+func TestProbeConfigDualStackCanForceIPv6WithoutIPv4Fallback(t *testing.T) {
+	p := common.ProbePolicy{
+		Enabled: true, Region: "guangzhou", Protocol: "icmp", Family: "ipv6",
+		Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6",
+	}
+	for _, families := range [][2]bool{{true, true}, {true, false}} {
+		cfg := probeConfigFromPolicyForFamilies(p, families[0], families[1])
+		if cfg.protocol != "tcp" || cfg.city != "IPv6" || len(cfg.tasks) != 3 {
+			t.Fatalf("forced IPv6 configuration unexpectedly changed: %+v", cfg)
+		}
+		for _, task := range cfg.tasks {
+			if task.network != "tcp6" || task.port != "80" || !strings.HasPrefix(task.name, "IPv6") {
+				t.Fatalf("forced IPv6 must never use IPv4: %+v", task)
+			}
+		}
+	}
+	p.Family = ""
+	cfg := probeConfigFromPolicyForFamilies(p, true, true)
+	if cfg.city != "广州" || cfg.tasks[0].network == "tcp6" {
+		t.Fatalf("legacy dual-stack default must keep IPv4 targets: %+v", cfg)
+	}
+}
+
+func TestSignedProbePolicyRejectsInvalidFamily(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := common.ProbePolicy{Version: 1, NodeID: "node-1", Enabled: true,
+		Region: "guangzhou", Protocol: "tcp", Family: "bad",
+		Telecom: "202.96.128.86", Unicom: "210.21.4.130", Mobile: "211.136.192.6"}
+	payload, _ := json.Marshal(p)
+	signed := &common.SignedProbePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, payload))}
+	if _, err := applySignedProbePolicy("node-1", pub, signed, &agentState{}); err == nil {
+		t.Fatal("unknown address family must be rejected")
+	}
+	p.Family = "ipv6"
+	payload, _ = json.Marshal(p)
+	signed = &common.SignedProbePolicy{Policy: p, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(priv, payload))}
+	if _, err := applySignedProbePolicy("node-1", pub, signed, &agentState{}); err != nil {
+		t.Fatalf("signed ipv6 preference should be accepted: %v", err)
+	}
+}
+
 func TestProbeTCPOnceTCP6(t *testing.T) {
 	ln, err := net.Listen("tcp6", "[::1]:0")
 	if err != nil {
