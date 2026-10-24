@@ -31,6 +31,37 @@ func TestValidateNodeInputDefaults(t *testing.T) {
 	}
 }
 
+func TestMergeNodeProbeFamilyAllowsSingleNodeIPv6Only(t *testing.T) {
+	old := nodeConfig{ID: "node-1", DisplayName: "dual-stack",
+		TrafficDirection: "total", TrafficResetDay: 1, ShutdownPercent: 95, Currency: "USD"}
+	family := "ipv6"
+	got, err := mergeNodeUpdate(old, nodeUpdateInput{ID: old.ID, ProbeFamily: &family})
+	if err != nil || got.ProbeFamily != "ipv6" {
+		t.Fatalf("failed to set IPv6 family: cfg=%+v err=%v", got, err)
+	}
+	if old.ProbeFamily != "" {
+		t.Fatal("original node configuration changed")
+	}
+	blank := ""
+	got2, err := mergeNodeUpdate(got, nodeUpdateInput{ID: old.ID, ProbeFamily: &blank})
+	if err != nil || got2.ProbeFamily != "" {
+		t.Fatalf("reset to auto failed: cfg=%+v err=%v", got2, err)
+	}
+	got3, err := mergeNodeUpdate(got, nodeUpdateInput{ID: old.ID})
+	if err != nil || got3.ProbeFamily != "ipv6" {
+		t.Fatalf("unrelated updates must preserve IP family: cfg=%+v err=%v", got3, err)
+	}
+}
+
+func TestMergeNodeProbeFamilyRejectsUnknownValue(t *testing.T) {
+	old := nodeConfig{ID: "n1", DisplayName: "dual-stack", TrafficDirection: "total",
+		TrafficResetDay: 1, ShutdownPercent: 95, Currency: "USD"}
+	family := "ipv4-and-ipv6"
+	if _, err := mergeNodeUpdate(old, nodeUpdateInput{ID: old.ID, ProbeFamily: &family}); err == nil {
+		t.Fatal("unknown family must fail closed")
+	}
+}
+
 func TestNodeLimitIsSoft(t *testing.T) {
 	if softNodeLimit != 15 {
 		t.Fatalf("soft node limit changed: %d", softNodeLimit)

@@ -74,6 +74,7 @@ const (
 	probeProtocolICMP    = "icmp"
 	probeProtocolTCP     = "tcp"
 	probeProtocolUDP     = "udp"
+	probeFamilyIPv6      = "ipv6"
 )
 
 var trafficWarnLevels = []int{70, 85, 90}
@@ -157,6 +158,7 @@ type settings struct {
 type nodeConfig struct {
 	ID                    string    `json:"id"`
 	DisplayName           string    `json:"display_name"`
+	ProbeFamily           string    `json:"probe_family,omitempty"`
 	TokenNonce            string    `json:"token_nonce"`
 	MonthlyTrafficLimit   uint64    `json:"monthly_traffic_limit"`
 	TrafficDirection      string    `json:"traffic_direction"`
@@ -174,6 +176,7 @@ type nodeConfig struct {
 type nodeUpdateInput struct {
 	ID                    string    `json:"id"`
 	DisplayName           *string   `json:"display_name,omitempty"`
+	ProbeFamily           *string   `json:"probe_family,omitempty"`
 	TrafficGB             *float64  `json:"traffic_gb,omitempty"`
 	TrafficDirection      *string   `json:"traffic_direction,omitempty"`
 	TrafficResetDay       *int      `json:"traffic_reset_day,omitempty"`
@@ -280,6 +283,7 @@ type server struct {
 type adminNodeView struct {
 	ID                    string                 `json:"id"`
 	DisplayName           string                 `json:"display_name"`
+	ProbeFamily           string                 `json:"probe_family"`
 	MonthlyTrafficLimit   uint64                 `json:"monthly_traffic_limit"`
 	TrafficDirection      string                 `json:"traffic_direction"`
 	TrafficResetDay       int                    `json:"traffic_reset_day"`
@@ -686,7 +690,7 @@ func (s *server) signedProbePolicyLocked(cfg nodeConfig) *common.SignedProbePoli
 	targets, _ := probeTargetsFor(s.db.Settings.ProbeRegion)
 	p := common.ProbePolicy{
 		Version: s.db.Settings.PolicyVersion, NodeID: cfg.ID, Enabled: s.db.Settings.ProbeMode != probeModeOff,
-		Region: s.db.Settings.ProbeRegion, Protocol: s.db.Settings.ProbeProtocol,
+		Region: s.db.Settings.ProbeRegion, Protocol: s.db.Settings.ProbeProtocol, Family: cfg.ProbeFamily,
 		Telecom: targets.Telecom, Unicom: targets.Unicom, Mobile: targets.Mobile,
 	}
 	payload, _ := json.Marshal(p)
@@ -1438,7 +1442,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			v := s.db.States[id]
 			_, upgradeRequested := s.db.AgentUpgrades[id]
 			out = append(out, adminNodeView{
-				ID: id, DisplayName: cfg.DisplayName, MonthlyTrafficLimit: cfg.MonthlyTrafficLimit,
+				ID: id, DisplayName: cfg.DisplayName, ProbeFamily: cfg.ProbeFamily, MonthlyTrafficLimit: cfg.MonthlyTrafficLimit,
 				TrafficDirection: cfg.TrafficDirection, TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZMinutes: cfg.TrafficResetTZMinutes,
 				ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
 				MonthlyPrice: cfg.MonthlyPrice, Currency: cfg.Currency, ExpireAt: cfg.ExpireAt, Tags: append([]string(nil), cfg.Tags...), CreatedAt: cfg.CreatedAt,
@@ -1680,6 +1684,17 @@ func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
 	if err != nil {
 		return nodeConfig{}, err
 	}
+	family := strings.ToLower(strings.TrimSpace(old.ProbeFamily))
+	if in.ProbeFamily != nil {
+		family = strings.ToLower(strings.TrimSpace(*in.ProbeFamily))
+	}
+	if family != "" && family != "auto" && family != probeFamilyIPv6 {
+		return nodeConfig{}, errors.New("probe family must be auto or ipv6")
+	}
+	if family == "auto" {
+		family = "" // Preserve compatibility with existing default probe policies.
+	}
+	updated.ProbeFamily = family
 	updated.TokenNonce = old.TokenNonce
 	updated.CreatedAt = old.CreatedAt
 	return updated, nil
@@ -2671,6 +2686,24 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 		body["display_name"] = v
 	}
 
+	familyLabel := "自动（双栈默认 IPv4）"
+	if n.ProbeFamily == probeFamilyIPv6 {
+		familyLabel = "仅 IPv6"
+	}
+	fmt.Printf("线路测试 IP 版本 [当前 %s]\n", familyLabel)
+	fmt.Println(" 1. 自动（双栈 IPv4，IPv6-only 自动 IPv6）")
+	fmt.Println(" 2. 仅 IPv6（TCP6，三网 IPv6 延迟 / 路由）")
+	switch prompt(r, "选择 [回车保持]: ") {
+	case "1":
+		body["probe_family"] = "auto"
+	case "2":
+		body["probe_family"] = probeFamilyIPv6
+	case "":
+	default:
+		fmt.Println("线路测试 IP 版本选择无效，未做任何修改。")
+		return
+	}
+
 	trafficCurrent := "未设置"
 	if n.MonthlyTrafficLimit > 0 {
 		trafficCurrent = trimFloat(float64(n.MonthlyTrafficLimit)/1_000_000_000) + " GB"
@@ -2803,7 +2836,7 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 		fmt.Println("修改失败:", err)
 		return
 	}
-	fmt.Println("节点设置已保存。未填写的项目保持原值；流量策略会通过签名配置自动同步到 Agent。")
+	fmt.Println("节点设置已保存。未填写的项目保持原值；流量及线路策略会通过签名配置自动同步到 Agent。")
 }
 
 func manageListNodes(c *localClient) {
