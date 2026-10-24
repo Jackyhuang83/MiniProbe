@@ -17,6 +17,7 @@ const subscriptionCSRFHeader = "X-MiniProbe-Subscription-CSRF"
 // The token is independently MACed and bound to one signed HttpOnly session.
 // It is sent only after a successful HTTPS session check, never in a cookie.
 func (s *server) subscriptionCSRFToken(r *http.Request) string {
+ if s.subscriptionAccessEnabled(r){return s.subscriptionAccessCSRF(r)}
  c,err:=r.Cookie(subscriptionCookie)
  if err!=nil{return ""}
  mac:=hmac.New(sha256.New,s.secret)
@@ -38,7 +39,7 @@ func subscriptionWebOriginOK(r *http.Request) bool {
 
 func (s *server) requireSubscriptionWebWrite(w http.ResponseWriter,r *http.Request) bool {
  noStore(w)
- if !requestIsTLS(r) || !s.hasSubscriptionSession(r) {
+ if !requestIsTLS(r) || !s.subscriptionAuthorized(r) {
   http.Error(w,"subscription owner session required",http.StatusUnauthorized)
   return false
  }
