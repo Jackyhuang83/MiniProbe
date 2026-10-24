@@ -35,9 +35,28 @@
         <input id="subPassword" type="password" autocomplete="current-password" placeholder="请在 MiniProbe 管理菜单 15 → 6 设置密码" required minlength="12">
         <button class="sub-button sub-primary" type="submit">解锁订阅中心 →</button>
       </form>
-      <p class="sub-gate-footer">请使用 HTTPS。Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6 设置密码；原生版通过 SSH 执行 miniprobe。</p>
+      <button id="subEmailToggle" type="button" class="sub-email-link hidden">忘记密码？使用邮箱一次性验证码</button>
+      <div id="subEmailLogin" class="sub-email-login hidden">
+        <p>验证码将发往在 VPS 本地预先绑定的邮箱。验证码 10 分钟有效，最多尝试 5 次。</p>
+        <button id="subEmailSend" type="button" class="sub-button sub-ghost">获取 8 位邮箱验证码</button>
+        <form id="subEmailVerifyForm">
+          <label for="subEmailCode">邮件中的 8 位验证码</label>
+          <input id="subEmailCode" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{8}" maxlength="8" placeholder="输入验证码" required>
+          <button id="subEmailVerify" class="sub-button sub-primary" type="submit">用验证码登录</button>
+        </form>
+        <button id="subEmailBack" type="button" class="sub-email-link">返回密码登录</button>
+      </div>
+      <p class="sub-gate-footer">仅通过 HTTPS 登录。密码在 SSH 输入 miniprobe → 15 → 6 设置；邮箱找回在 15 → 11 绑定并发送测试邮件。</p>
     </section>
     <div id="subPrivate" class="hidden">
+      <section id="subEmailResetSection" class="sub-panel sub-email-reset hidden" aria-label="通过邮箱验证码重设密码">
+        <div class="sub-section-title"><div><h2>通过邮箱验证重设密码</h2><p>验证码登录后 10 分钟内可重设。新密码需要至少 12 个字符；保存后需要重新登录。</p></div></div>
+        <form id="subEmailResetForm" class="sub-reset-fields">
+          <label>新订阅密码 <input id="subEmailNewPassword" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <label>再次输入 <input id="subEmailNewPasswordConfirm" type="password" autocomplete="new-password" minlength="12" maxlength="128" required></label>
+          <button id="subEmailResetSubmit" type="submit" class="sub-button sub-primary">保存新密码</button>
+        </form>
+      </section>
       <div class="sub-section-title"><div><h2>概览</h2><p>订阅及 VPS 数据实时关联，金额按原始币种显示</p></div><span id="subUpdated" class="sub-muted"></span></div>
       <div class="sub-kpis" aria-label="订阅概览">
         <article class="sub-kpi"><span>当前记录</span><strong id="subTotal">—</strong><small>含关联的 VPS</small></article>
