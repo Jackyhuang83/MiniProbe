@@ -63,7 +63,10 @@ const findClass=(el,name)=>el.className.split(" ").includes(name)||(el.children|
   assert.match(setupElements.get("subGateText").textContent,/Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6/);
   assert.doesNotMatch(setupElements.get("subGateText").textContent,/Server SSH/);
   const html=fs.readFileSync(path.join(__dirname,"..","cmd","miniprobe-server","web","subscriptions.html"),"utf8");
-  assert.match(html,/Docker 版请进入容器内 MiniProbe 管理菜单 → 15 → 6/);
+  assert.match(html,/miniprobe → 15 → 6/,"show the short SSH management entrypoint");
+  assert.match(html,/15 → 11/,"show local SMTP recovery setup route");
+  assert.match(html,/忘记密码？使用邮箱一次性验证码/,"show optional email recovery");
+
   assert.doesNotMatch(html,/Server SSH/);
   console.log("Subscription card and Docker first-time setup guidance: OK");
 })().catch(err=>{console.error(err);process.exitCode=1});

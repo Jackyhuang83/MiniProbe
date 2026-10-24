@@ -112,7 +112,7 @@ func promptSubscriptionFields(r *bufio.Reader,old *subscriptionRecord)(subscript
 }
 func manageSubscriptions(r *bufio.Reader,c *localClient){
  for{
-  fmt.Println("\n========== 订阅管理中心 · DEV2 ==========")
+  fmt.Println("\n========== 订阅管理中心 · 邮箱恢复版 ==========")
   fmt.Println(" 1. 查看全部订阅（含自动关联 VPS）")
   fmt.Println(" 2. 新增订阅")
   fmt.Println(" 3. 编辑订阅")
@@ -123,6 +123,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
   fmt.Println(" 8. Telegram 到期提醒（默认关闭）")
   fmt.Println(" 9. 单条订阅提醒设置")
   fmt.Println("10. 私有账本备份 / 恢复")
+  fmt.Println("11. 邮箱验证码 / SMTP 恢复设置")
   fmt.Println(" 0. 返回主菜单")
   switch prompt(r,"请选择: "){
   case "1":
@@ -155,7 +156,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
    if prompt(r,fmt.Sprintf("永久删除「%s」，输入 DELETE 确认: ",rec.Name))!="DELETE"{fmt.Println("已取消。");continue}
    if err=c.request(http.MethodDelete,"/v1/subscriptions?id="+rec.ID,nil,nil);err!=nil{fmt.Println("删除失败:",err)}else{fmt.Println("已删除。")}
   case "6":
-   fmt.Println("密码仅用于订阅私有只读网页；与 Dashboard 密码完全独立。")
+   fmt.Println("密码仅用于订阅中心私有网页；与 Dashboard 密码完全独立。")
    p:=promptPassword(r,"新密码（至少 12 字符）: ")
    if len(p)<12||len(p)>128{fmt.Println("密码长度不符合要求。");continue}
    p2:=promptPassword(r,"再次输入新密码: ")
@@ -165,6 +166,7 @@ func manageSubscriptions(r *bufio.Reader,c *localClient){
   case "8":manageSubscriptionReminders(r,c)
   case "9":manageSubscriptionOverride(r,c)
   case "10":manageSubscriptionBackups(r,c)
+  case "11":manageSubscriptionEmail(r,c)
   case "0":return
   default:fmt.Println("无效选项。")
   }
@@ -311,5 +313,42 @@ func manageSubscriptionBackups(r *bufio.Reader,c *localClient){
   fmt.Println("警告：恢复会覆盖当前所有手动订阅、续费历史及提醒设置。")
   if prompt(r,"确认恢复，输入 RESTORE: ")!="RESTORE"{fmt.Println("已取消。");return}
   if err:=c.request(http.MethodPost,"/v1/subscriptions/restore",map[string]string{"name":result.Items[idx-1],"confirm":"RESTORE"},nil);err!=nil{fmt.Println("恢复失败:",err)}else{fmt.Println("恢复成功。")}
+ }
+}
+
+func manageSubscriptionEmail(r *bufio.Reader,c *localClient){
+ for{
+  var status struct{Enabled bool `json:"enabled"`;Recipient string `json:"recipient"`;SMTPHost string `json:"smtp_host"`;SMTPPort int `json:"smtp_port"`}
+  if err:=c.request(http.MethodGet,"/v1/subscriptions/email",nil,&status);err!=nil{fmt.Println("邮箱配置查询失败:",err);return}
+  fmt.Println("\n========== 邮箱验证码 · 本地专用设置 ==========")
+  if status.Enabled{
+   fmt.Printf("状态：已启用 · 接收：%s · SMTP：%s:%d\n",status.Recipient,status.SMTPHost,status.SMTPPort)
+  }else{fmt.Println("状态：未启用（原密码登录不受影响）")}
+  fmt.Println(" 1. 配置并发送测试邮件（成功后才启用）")
+  fmt.Println(" 2. 关闭邮箱恢复并清除 SMTP 授权码")
+  fmt.Println(" 0. 返回")
+  switch prompt(r,"请选择: "){
+  case "1":
+   fmt.Println("请使用 SMTP 授权码/App Password，不建议使用邮箱的日常登录密码。")
+   host:=prompt(r,"SMTP 服务器主机名: ")
+   port:=prompt(r,"端口（465 TLS 或 587 STARTTLS）: ")
+   if port!="465"&&port!="587"{fmt.Println("端口只允许 465 或 587");continue}
+   user:=prompt(r,"SMTP 登录用户名: ")
+   from:=prompt(r,"发件邮箱: ")
+   to:=prompt(r,"接收验证码的固定邮箱: ")
+   password:=promptPassword(r,"SMTP 授权码: ")
+   if password==""{fmt.Println("未提供 SMTP 授权码");continue}
+   if prompt(r,"发送测试邮件并启用，输入 YES 确认: ")!="YES"{fmt.Println("已取消");continue}
+   p:=465;if port=="587"{p=587}
+   cfg:=subscriptionMailConfig{Enabled:true,Host:host,Port:p,Username:user,Password:password,From:from,To:to}
+   if err:=c.request(http.MethodPut,"/v1/subscriptions/email",cfg,nil);err!=nil{
+    fmt.Println("设置失败（保留原配置）:",err)
+   }else{fmt.Println("测试邮件已发送，邮箱验证码登录已启用。")}
+  case "2":
+   if prompt(r,"关闭邮箱验证码登录，输入 DISABLE 确认: ")!="DISABLE"{fmt.Println("已取消");continue}
+   if err:=c.request(http.MethodDelete,"/v1/subscriptions/email",map[string]string{"confirm":"DISABLE"},nil);err!=nil{fmt.Println("关闭失败:",err)}else{fmt.Println("邮箱恢复已关闭，SMTP 配置已清除。")}
+  case "0":return
+  default:fmt.Println("无效选项")
+  }
  }
 }

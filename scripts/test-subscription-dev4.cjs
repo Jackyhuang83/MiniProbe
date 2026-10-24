@@ -31,8 +31,15 @@ const csrf="ci-owner-csrf-123";
 const fetch=async (url,opts={})=>{
  const method=opts.method||"GET";
  seen.push({url,method,options:opts});
- if(url.endsWith("/session"))return {ok:true,json:async()=>({secure:true,enabled:true,authenticated:true,csrf})};
+ if(url.endsWith("/session"))return {ok:true,json:async()=>({secure:true,enabled:true,authenticated:true,email_available:true,email_reset_allowed:true,csrf})};
  if(url==="/api/v1/subscriptions"&&method==="GET")return {ok:true,json:async()=>({items,renewals:[],reminders:{enabled:false,days:[]}})};
+ if(url.endsWith("/email/request")&&method==="POST")return {ok:true,json:async()=>({ok:true})};
+ if(url.endsWith("/email/verify")&&method==="POST")return {ok:true,json:async()=>({ok:true})};
+ if(url.endsWith("/email/reset-password")&&method==="PUT"){
+   assert.equal(opts.headers["X-MiniProbe-Subscription-CSRF"],csrf);
+   assert.equal(opts.headers["Content-Type"],"application/json");
+   return {ok:true,json:async()=>({ok:true})};
+ }
  if(["POST","PUT","DELETE"].includes(method)&&url.startsWith("/api/v1/subscriptions/")){
    assert.equal(opts.credentials,"same-origin");
    assert.equal(opts.headers["X-MiniProbe-Subscription-CSRF"],csrf);
@@ -119,6 +126,23 @@ function submit(id){return $(id).events.submit({preventDefault(){}})}
  assert.equal(items.some(x=>x.id==="sub-test"),false,"DELETE must succeed, not merely be attempted");
  assert.match($("subNotice").textContent,/已删除订阅/,"DELETE should show successful completion");
 
+ // OTP UI is separate from password login and never supplies a recipient.
+ click($("subEmailToggle"));
+ click($("subEmailSend"));
+ await flush();
+ assert.ok(seen.some(x=>x.url.endsWith("/email/request")&&x.method==="POST"));
+ $("subEmailCode").value="12345678";
+ await submit("subEmailVerifyForm");await flush();
+ const verification=seen.find(x=>x.url.endsWith("/email/verify")&&x.method==="POST");
+ assert.equal(JSON.parse(verification.options.body).code,"12345678");
+ assert.equal(JSON.parse(verification.options.body).recipient,undefined,"public OTP never accepts a recipient");
+ $("subEmailNewPassword").value="new private recovery password";
+ $("subEmailNewPasswordConfirm").value="new private recovery password";
+ await submit("subEmailResetForm");await flush();
+ const reset=seen.find(x=>x.url.endsWith("/email/reset-password")&&x.method==="PUT");
+ assert.ok(reset,"password reset not wired");
+ assert.equal(JSON.parse(reset.options.body).password,"new private recovery password");
+ assert.match($("subNotice").textContent,/订阅密码已重设/);
  // The HTML must actually render the controls that the JS binds.
  const html=fs.readFileSync(path.join(__dirname,"..","cmd/miniprobe-server/web/subscriptions.html"),"utf8");
  for(const id of ["subAdd","subEditor","subEditForm","subEditSave","subRenewEditor","subRenewForm","subRenewSave"]){
