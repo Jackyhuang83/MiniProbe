@@ -22,11 +22,11 @@ func TestParseTZOffset(t *testing.T) {
 }
 
 func TestValidateNodeInputDefaults(t *testing.T) {
-	cfg, err := validateNodeInput("n1", "Aliyun-HK", 200, "outbound", 1, 480, true, 95, 4.5, "usd", "", nil)
+	cfg, err := validateNodeInput("n1", "Aliyun-HK", 200, "outbound", 1, 480, true, 95, 4.5, "", "usd", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.MonthlyTrafficLimit != 200_000_000_000 || cfg.TrafficDirection != "outbound" || cfg.TrafficResetTZMinutes != 480 || !cfg.ShutdownEnabled || cfg.ShutdownPercent != 95 {
+	if cfg.MonthlyTrafficLimit != 200_000_000_000 || cfg.TrafficDirection != "outbound" || cfg.TrafficResetTZMinutes != 480 || !cfg.ShutdownEnabled || cfg.ShutdownPercent != 95 || cfg.BillingCycle != "monthly" || cfg.Currency != "USD" {
 		t.Fatalf("bad config: %+v", cfg)
 	}
 }
