@@ -18,6 +18,11 @@ function markup(nodes){
   context.__fixture=nodes;
   return vm.runInContext('headerSummaryMarkup(__fixture)',context);
 }
+// VPS billing price uses the actual selected payment period; older nodes default monthly.
+context.__month={monthly_price:10,currency:'USD'};
+context.__year={monthly_price:120,currency:'USD',billing_cycle:'yearly'};
+assert.equal(vm.runInContext('priceText(__month)',context),'$10/月');
+assert.equal(vm.runInContext('priceText(__year)',context),'$120/年');
 const nodes = [
   ...Array.from({length:4},(_,i)=>({display_name:'HK-node-'+i,online:true})),
   {tags:['JP'],display_name:'Tokyo-A',online:true},

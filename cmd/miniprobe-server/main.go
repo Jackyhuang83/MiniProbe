@@ -2844,6 +2844,12 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 			body["monthly_price"] = f
 		}
 	}
+  if billingCycle!=validBillingCycleOrMonthly(n.BillingCycle) {
+    if _,amountUpdated:=body["monthly_price"];!amountUpdated {
+      fmt.Println("付款周期已切换，请填写对应周期的实际付款总金额（年付请填写全年费用）；本次未保存。")
+      return
+    }
+  }
 	if v := prompt(r, nodeCurrencyInputPrompt(n.Currency)); v != "" {
 		body["currency"] = v
 	}
