@@ -75,6 +75,25 @@ function submit(id){return $(id).events.submit({preventDefault(){}})}
  await flush();
  const cards=$("subCards").children;
  assert.equal(cards.length,2,"manual + VPS cards render");
+
+ const editCurrencyChoices=$("subEditCurrency").children;
+ const renewCurrencyChoices=$("subRenewCurrency").children;
+ assert.ok(editCurrencyChoices.length>=150,"provide the complete current country currency list");
+ assert.equal(renewCurrencyChoices.length,editCurrencyChoices.length,"renewal form has the same currency choices");
+ const values=editCurrencyChoices.map(el=>el.value);
+ for(const code of ["JPY","USD","CNY","EUR","HKD","TWD","KRW","SGD","GBP","TRY","ZWG"]){
+  assert.ok(values.includes(code),"missing currency "+code);
+ }
+ assert.equal(new Set(values).size,values.length,"currency options must not duplicate");
+ assert.ok(editCurrencyChoices.some(x=>x.value==="JPY"&&x.textContent.includes("·")),"currency labels must be human readable");
+ const zoneOptions=[...htmlTemplate.matchAll(/<option value="([^"]+)">(?:JP|US|CN|DE) · /g)].map(m=>m[1]);
+ assert.deepEqual(zoneOptions,[
+  "Asia/Tokyo","America/Los_Angeles","America/New_York","Asia/Shanghai","Europe/Berlin"
+ ],"timezone form offers exactly five valid IANA presets");
+ assert.match(htmlTemplate,/<select id="subEditZone" required>/);
+ assert.match(htmlTemplate,/<select id="subEditCurrency" required/);
+ assert.match(htmlTemplate,/<select id="subRenewCurrency" required/);
+
  const manualButtons=all(cards[0]).filter(n=>n.tag==="button").map(x=>x.textContent);
  const vpsButtons=all(cards[1]).filter(n=>n.tag==="button").map(x=>x.textContent);
  assert.deepEqual(manualButtons,["编辑","记录续费","删除"]);
@@ -96,10 +115,13 @@ function submit(id){return $(id).events.submit({preventDefault(){}})}
  $("subEditCurrency").value="JPY";
  $("subEditCycle").value="yearly";
  $("subEditDue").value="2030-02-01";
+ $("subEditZone").value="America/Los_Angeles";
  await submit("subEditForm");await flush();
  const create=seen.find(x=>x.url.endsWith("/manage")&&x.method==="POST");
  assert.ok(create,"create request");
  assert.equal(JSON.parse(create.options.body).amount_minor,1200);
+ assert.equal(JSON.parse(create.options.body).time_zone,"America/Los_Angeles","save selected IANA timezone");
+ assert.equal(JSON.parse(create.options.body).currency,"JPY","save selected ISO currency");
 
  // Re-rendered cards are separate instances from the initial list.
  const renewedCard=$("subCards").children.find(card=>all(card).some(el=>el.tag==="strong"&&el.textContent==="Streaming Plus"));
