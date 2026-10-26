@@ -36,6 +36,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Jackyhuang83/MiniProbe/internal/common"
 )
@@ -1477,6 +1479,10 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
+        if err := validateNodeTags(in.Tags); err != nil {
+          http.Error(w, err.Error(), http.StatusBadRequest)
+          return
+        }
 		cfg, err := validateNodeInput("", in.DisplayName, in.TrafficGB, in.TrafficDirection, in.TrafficResetDay, in.TrafficResetTZMinutes, in.ShutdownEnabled, in.ShutdownPercent, in.MonthlyPrice, in.BillingCycle, in.Currency, in.ExpireAt, in.Tags)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1521,6 +1527,13 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "node not found", http.StatusNotFound)
 			return
 		}
+        if in.Tags != nil {
+          if err:=validateNodeTags(*in.Tags);err!=nil {
+            s.mu.Unlock()
+            http.Error(w,err.Error(),http.StatusBadRequest)
+            return
+          }
+        }
 		updated, err := mergeNodeUpdate(old, in)
 		if err != nil {
 			s.mu.Unlock()
@@ -2269,6 +2282,24 @@ func installCommand(publicURL, nodeID, token, serverKey string) string {
 
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
 
+// Reject malformed or non-displayable node tags before JSON serialization.
+// encoding/json replaces invalid UTF-8 bytes with U+FFFD without an error,
+// which previously made broken terminal input appear as garbled dashboard text.
+func validateNodeTags(tags []string) error {
+ if len(tags)>8 {return errors.New("备注标签最多 8 个，请用逗号分隔")}
+ for _,tag:=range tags {
+  if !utf8.ValidString(tag) || strings.ContainsRune(tag,utf8.RuneError) {
+   return errors.New("备注标签含乱码或无效 UTF-8，请检查 SSH 终端编码后重新输入")
+  }
+  tag=strings.TrimSpace(tag)
+  if len([]rune(tag))>30 {return errors.New("单个备注标签最多 30 个字符，请简化或按逗号分隔")}
+  for _,ch:=range tag {
+   if unicode.IsControl(ch) {return errors.New("备注标签不能包含控制字符或换行")}
+  }
+ }
+ return nil
+}
+
 func cleanTags(in []string) []string {
 	out := make([]string, 0, len(in))
 	seen := map[string]bool{}
@@ -2537,6 +2568,7 @@ func manageAddNode(r *bufio.Reader, c *localClient) {
 		return
 	}
 	body := promptNodePolicy(r, nil)
+ if body==nil {return}
 	body["display_name"] = name
 	var out struct {
 		ID               string `json:"id"`
@@ -2688,11 +2720,15 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	if expire == "" {
 		expire = curExpire
 	}
-	tagsPrompt := "标签，逗号分隔 [可选]: "
+	tagsPrompt := "备注标签（中文可用，逗号分隔，单项最多30字）[可选]: "
 	if current != nil {
 		tagsPrompt = fmt.Sprintf("标签 [%s]: ", curTags)
 	}
 	tagsRaw := prompt(r, tagsPrompt)
+  if !utf8.ValidString(tagsRaw) || strings.ContainsRune(tagsRaw,utf8.RuneError) {
+   fmt.Println("备注标签编码错误：请使用 UTF-8 SSH 终端重新输入；没有修改任何节点。")
+   return nil
+  }
 	if tagsRaw == "" {
 		tagsRaw = curTags
 	}
@@ -2702,6 +2738,10 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 			tags = append(tags, strings.TrimSpace(t))
 		}
 	}
+    if err:=validateNodeTags(tags);err!=nil{
+      fmt.Println("备注标签无效：",err)
+      return nil
+    }
 	return map[string]any{
 		"traffic_gb": traffic, "traffic_direction": direction, "traffic_reset_day": resetDay, "traffic_reset_tz_minutes": resetTZ,
 		"shutdown_enabled": shutdown, "shutdown_percent": shutdownPct, "monthly_price": parseFloat(priceRaw), "billing_cycle": billingCycle, "currency": currency,
@@ -2868,7 +2908,11 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 	if tagsCurrent == "" {
 		tagsCurrent = "未设置"
 	}
-	if v := prompt(r, fmt.Sprintf("标签 [%s]（逗号分隔，- 清除）: ", tagsCurrent)); v != "" {
+	if v := prompt(r, fmt.Sprintf("备注标签 [%s]（中文可用，逗号分隔，- 清除）: ", tagsCurrent)); v != "" {
+       if !utf8.ValidString(v) || strings.ContainsRune(v,utf8.RuneError) {
+        fmt.Println("备注标签编码错误：请使用 UTF-8 SSH 终端重新输入；没有修改任何节点。")
+        return
+       }
 		if v == "-" {
 			body["tags"] = []string{}
 		} else {
@@ -2878,6 +2922,10 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 					tags = append(tags, strings.TrimSpace(t))
 				}
 			}
+            if err:=validateNodeTags(tags);err!=nil {
+              fmt.Println("备注标签无效：",err)
+              return
+            }
 			body["tags"] = tags
 		}
 	}

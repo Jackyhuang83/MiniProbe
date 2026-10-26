@@ -23,6 +23,18 @@ context.__month={monthly_price:10,currency:'USD'};
 context.__year={monthly_price:120,currency:'USD',billing_cycle:'yearly'};
 assert.equal(vm.runInContext('priceText(__month)',context),'$10/月');
 assert.equal(vm.runInContext('priceText(__year)',context),'$120/年');
+// Regression: Chinese / emoji labels must remain readable and safe on cards.
+context.__tagNode={node_id:'node-test',display_name:'🇯🇵 测试机',online:true,
+  tags:['日本影音优化','🏠 住宅宽带','<script>alert(1)</script>']};
+const tagMarkup=vm.runInContext('card(__tagNode)',context);
+assert.ok(tagMarkup.includes('日本影音优化'),'Chinese note must render intact');
+assert.ok(tagMarkup.includes('🏠 住宅宽带'),'Emoji note must render intact');
+assert.ok(tagMarkup.includes('&lt;script&gt;alert(1)&lt;/script&gt;'),'Tags must remain HTML escaped');
+assert.ok(!tagMarkup.includes('<script>alert(1)</script>'),'Tags must not execute HTML');
+context.__badTagNode={...context.__tagNode,tags:['坏字�条目']};
+const badTagMarkup=vm.runInContext('card(__badTagNode)',context);
+assert.ok(badTagMarkup.includes('备注编码异常，请重新填写'),'Existing corrupt tags require explicit correction');
+assert.ok(!badTagMarkup.includes('坏字�条目'),'Do not present irreversible replacement chars as valid notes');
 const nodes = [
   ...Array.from({length:4},(_,i)=>({display_name:'HK-node-'+i,online:true})),
   {tags:['JP'],display_name:'Tokyo-A',online:true},
@@ -48,4 +60,5 @@ assert.match(page, /class="dashboard-header-summary"/);
 assert.match(page, /id="summary" class="header-stats"/);
 assert.match(css, /\.dashboard-header\{flex-direction:column/);
 assert.match(css, /\.header-stats\{[^}]*flex-wrap:wrap/);
+assert.match(css, /\.tag\{[^}]*overflow-wrap:anywhere/,"long CJK notes must wrap rather than appear broken");
 console.log('Dashboard two-row header and regional node summary: ok');

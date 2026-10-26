@@ -267,7 +267,7 @@ function card(n){
   const m=n.metrics||{},i=n.info||{},t=n.traffic||{},os=osIdentity(i.os),exp=expiryInfo(n.expire_at),price=priceText(n),region=regionCode(n);
   const name=n.display_name||n.node_id,route=routeStatus(n);
   const probeProtocol=String(n.probe_protocol||'').toUpperCase();
-  const tagHtml=(n.tags||[]).filter(x=>String(x).toUpperCase()!==region).map(x=>`<span class="tag">${esc(x)}</span>`).join('');
+  const tagHtml=(n.tags||[]).filter(x=>String(x).toUpperCase()!==region).map(x=>String(x).includes('\uFFFD')?'<span class="tag tag-corrupt" title="原始字符无法自动恢复，请在 Server SSH 的 miniprobe → 3 修改节点 → 备注标签中重新填写">备注编码异常，请重新填写</span>':`<span class="tag">${esc(x)}</span>`).join('');
   const planBody=(exp.text||price)?`<span class="plan-primary ${exp.days!==null&&exp.days<=7?'urgent':''}">${esc(exp.text||'未设置到期')}</span><span>${esc(price||'未设置价格')}</span>`:`<span class="plan-primary">未设置</span>`;
   return `<article class="card ${n.online?'':'offline-card'}">
     <div class="top">
