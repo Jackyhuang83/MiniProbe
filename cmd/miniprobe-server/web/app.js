@@ -71,7 +71,7 @@ function priceText(n){
   const c=String(n.currency||'').toUpperCase();
   const symbols={CNY:'¥',RMB:'¥',USD:'$',HKD:'HK$',JPY:'¥',EUR:'€',GBP:'£',SGD:'S$',AUD:'A$',CAD:'C$'};
   const p=symbols[c]||c;
-  return `${p}${Number.isInteger(v)?v:v.toFixed(2)}/月`;
+  return `${p}${Number.isInteger(v)?v:v.toFixed(2)}/${n.billing_cycle==='yearly'?'年':'月'}`;
 }
 function expiryInfo(v){
   if(!v) return {text:'',days:null};

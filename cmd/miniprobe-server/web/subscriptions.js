@@ -52,10 +52,9 @@
     $(id).value=chosen;
   }
 
-  // Node settings currently provide a monthly price, not the actual billing interval or renewal mode.
-  // Never claim that a VPS is monthly-billed or manually renewed when the source did not say so.
+  // VPS node settings provide billing cycle, but not the actual renewal mechanism.
   function billingBadge(item) {
-    if (item.source==="vps" && item.cycle!=="long_term") return {label:"月租",style:"node"};
+    if (item.source==="vps" && item.cycle!=="long_term") return {label:item.cycle==="yearly"?"年付":"月付",style:"node"};
     const label=cycleText[item.cycle]||"周期未设置";
     return {label:item.cycle==="custom"&&item.custom_days?label+" · "+item.custom_days+"天":label,style:item.cycle||"unknown"};
   }
@@ -131,7 +130,7 @@
     const billingTag=billingBadge(item);
     priceRow.append(total,el("span","sub-cycle-badge "+billingTag.style,billingTag.label));
     node.append(priceRow);
-    if(item.source==="vps") node.append(el("div","sub-cycle-note","节点月租金额 · 实际扣费周期未设置"));
+    if(item.source==="vps") node.append(el("div","sub-cycle-note",item.cycle==="yearly"?"节点年付金额 · 续费方式未设置":item.cycle==="monthly"?"节点月租金额 · 续费方式未设置":"节点金额 · 长期"));
     const days=daysUntil(item.due_date,item.time_zone);
     let badge="未设置";
     if(item.cycle==="long_term")badge="长期";
@@ -230,7 +229,7 @@
     }
     const fmt=map=>[...map].sort((a,b)=>a[0].localeCompare(b[0])).map(([currency,amount])=>price({currency,amount_minor:amount})+" "+currency).join(" · ")||"—";
     $("subForecastTotal").textContent=fmt(totals);
-    $("subForecastCaveat").textContent="仅预测已设置周期、有效且有到期日的手动订阅；"+excluded+" 个有月租的 VPS 未纳入，避免假设扣费周期。";
+    $("subForecastCaveat").textContent="仅预测已设置周期、有效且有到期日的手动订阅；"+excluded+" 个有费用的 VPS 未纳入年度预测，避免把到期日期等同于未来扣款。";
     $("subMonthRows").replaceChildren(...monthTotals.map((total,i)=>{
       const line=el("div","sub-month-row");
       line.append(el("span","",String(i+1).padStart(2,"0")+" 月"),el("strong","",fmt(total)));

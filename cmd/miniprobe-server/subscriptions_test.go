@@ -230,3 +230,14 @@ func TestDockerSubscriptionPasswordSetupPersists(t *testing.T) {
 		t.Fatalf("password not enabled after reload: %d %s", session.Code, session.Body.String())
 	}
 }
+
+func TestSubscriptionSnapshotYearlyVPS(t *testing.T) {
+ s:=subscriptionTestServer(t)
+ s.db.Nodes["annual"]=nodeConfig{ID:"annual",DisplayName:"Annual VPS",MonthlyPrice:120,Currency:"USD",BillingCycle:"yearly",ExpireAt:"2027-12-01"}
+ s.db.Nodes["legacy"]=nodeConfig{ID:"legacy",DisplayName:"Legacy VPS",MonthlyPrice:10,Currency:"USD",ExpireAt:"2027-12-01"}
+ byNode:=map[string]subscriptionView{}
+ for _,v:=range s.subscriptionSnapshot(){if v.Source=="vps"{byNode[v.NodeID]=v}}
+ a,m:=byNode["annual"],byNode["legacy"]
+ if a.Cycle!="yearly" || a.AmountMinor!=12000 || a.DueDate!="2027-12-01"{t.Fatalf("annual VPS amount or cycle wrong: %+v",a)}
+ if m.Cycle!="monthly" || m.AmountMinor!=1000{t.Fatalf("legacy monthly VPS wrong: %+v",m)}
+}

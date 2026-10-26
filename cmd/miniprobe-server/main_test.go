@@ -378,3 +378,19 @@ func TestNodeCurrencyPromptExamples(t *testing.T) {
     if strings.Contains(prompt,"GBD"){t.Fatalf("nonexistent currency code leaked into prompt: %q",prompt)}
   }
 }
+
+func TestNodeBillingCycleLegacyAndYearly(t *testing.T) {
+ // Historical persisted nodes have no cycle; do not change their monthly price.
+ old:=nodeConfig{ID:"legacy",DisplayName:"Legacy VPS",MonthlyPrice:10,Currency:"USD",TrafficDirection:"total",TrafficResetDay:1,ShutdownPercent:95}
+ got,err:=mergeNodeUpdate(old,nodeUpdateInput{ID:"legacy"})
+ if err!=nil || got.BillingCycle!="monthly" || got.MonthlyPrice!=10 {t.Fatalf("legacy billing changed: %+v %v",got,err)}
+ yearly:="yearly"
+ annual:=120.0
+ got,err=mergeNodeUpdate(old,nodeUpdateInput{ID:"legacy",BillingCycle:&yearly,MonthlyPrice:&annual})
+ if err!=nil || got.BillingCycle!="yearly" || got.MonthlyPrice!=120 {t.Fatalf("annual billing not retained: %+v %v",got,err)}
+ changedName:="Renamed"
+ got,err=mergeNodeUpdate(got,nodeUpdateInput{ID:"legacy",DisplayName:&changedName})
+ if err!=nil || got.BillingCycle!="yearly" || got.MonthlyPrice!=120 {t.Fatalf("unrelated node edit changed billing: %+v %v",got,err)}
+ unknown:="biannual"
+ if _,err=mergeNodeUpdate(old,nodeUpdateInput{ID:"legacy",BillingCycle:&unknown});err==nil {t.Fatal("invalid node billing cycle accepted")}
+}

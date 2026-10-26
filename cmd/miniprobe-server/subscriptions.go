@@ -190,7 +190,7 @@ func (s *server) subscriptionSnapshot() []subscriptionView {
   currency:=strings.ToUpper(strings.TrimSpace(node.Currency))
   if !subscriptionCurrency.MatchString(currency){currency=""}
   due:=node.ExpireAt
-  cycle:="monthly"
+  cycle:=validBillingCycleOrMonthly(node.BillingCycle)
   if due==longTermExpireDate {cycle="long_term";due=""}
   if !validSubscriptionDate(due){due=""}
   name:=strings.TrimSpace(node.DisplayName)

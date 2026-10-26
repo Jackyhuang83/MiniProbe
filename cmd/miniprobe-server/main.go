@@ -166,7 +166,8 @@ type nodeConfig struct {
 	TrafficResetTZMinutes int       `json:"traffic_reset_tz_minutes"`
 	ShutdownEnabled       bool      `json:"shutdown_enabled"`
 	ShutdownPercent       int       `json:"shutdown_percent"`
-	MonthlyPrice          float64   `json:"monthly_price"`
+	MonthlyPrice          float64   `json:"monthly_price"` // Legacy field name; amount follows BillingCycle.
+	BillingCycle          string    `json:"billing_cycle,omitempty"` // monthly (default) or yearly
 	Currency              string    `json:"currency"`
 	ExpireAt              string    `json:"expire_at"`
 	Tags                  []string  `json:"tags"`
@@ -184,6 +185,7 @@ type nodeUpdateInput struct {
 	ShutdownEnabled       *bool     `json:"shutdown_enabled,omitempty"`
 	ShutdownPercent       *int      `json:"shutdown_percent,omitempty"`
 	MonthlyPrice          *float64  `json:"monthly_price,omitempty"`
+	BillingCycle          *string   `json:"billing_cycle,omitempty"`
 	Currency              *string   `json:"currency,omitempty"`
 	ExpireAt              *string   `json:"expire_at,omitempty"`
 	Tags                  *[]string `json:"tags,omitempty"`
@@ -291,6 +293,7 @@ type adminNodeView struct {
 	ShutdownEnabled       bool                   `json:"shutdown_enabled"`
 	ShutdownPercent       int                    `json:"shutdown_percent"`
 	MonthlyPrice          float64                `json:"monthly_price"`
+	BillingCycle          string                 `json:"billing_cycle"`
 	Currency              string                 `json:"currency"`
 	ExpireAt              string                 `json:"expire_at"`
 	Tags                  []string               `json:"tags"`
@@ -619,7 +622,7 @@ func (s *server) report(w http.ResponseWriter, r *http.Request) {
 		MonthlyTrafficLimit: cfg.MonthlyTrafficLimit, TrafficDirection: cfg.TrafficDirection,
 		TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZ: formatTZOffset(cfg.TrafficResetTZMinutes),
 		ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
-		MonthlyPrice: cfg.MonthlyPrice, Currency: cfg.Currency, ExpireAt: cfg.ExpireAt, Tags: append([]string(nil), cfg.Tags...),
+		MonthlyPrice: cfg.MonthlyPrice, BillingCycle: validBillingCycleOrMonthly(cfg.BillingCycle), Currency: cfg.Currency, ExpireAt: cfg.ExpireAt, Tags: append([]string(nil), cfg.Tags...),
 	}
 	s.db.States[rep.NodeID] = nv
 
@@ -795,6 +798,7 @@ func (s *server) nodesAPI(w http.ResponseWriter, r *http.Request) {
 		v.ShutdownEnabled = cfg.ShutdownEnabled
 		v.ShutdownPercent = cfg.ShutdownPercent
 		v.MonthlyPrice = cfg.MonthlyPrice
+		v.BillingCycle = validBillingCycleOrMonthly(cfg.BillingCycle)
 		v.Currency = cfg.Currency
 		v.ExpireAt = cfg.ExpireAt
 		v.Tags = append([]string(nil), cfg.Tags...)
@@ -1445,7 +1449,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 				ID: id, DisplayName: cfg.DisplayName, ProbeFamily: cfg.ProbeFamily, MonthlyTrafficLimit: cfg.MonthlyTrafficLimit,
 				TrafficDirection: cfg.TrafficDirection, TrafficResetDay: cfg.TrafficResetDay, TrafficResetTZMinutes: cfg.TrafficResetTZMinutes,
 				ShutdownEnabled: cfg.ShutdownEnabled, ShutdownPercent: cfg.ShutdownPercent,
-				MonthlyPrice: cfg.MonthlyPrice, Currency: cfg.Currency, ExpireAt: cfg.ExpireAt, Tags: append([]string(nil), cfg.Tags...), CreatedAt: cfg.CreatedAt,
+				MonthlyPrice: cfg.MonthlyPrice, BillingCycle: validBillingCycleOrMonthly(cfg.BillingCycle), Currency: cfg.Currency, ExpireAt: cfg.ExpireAt, Tags: append([]string(nil), cfg.Tags...), CreatedAt: cfg.CreatedAt,
 				Online: !v.LastSeen.IsZero() && now.Sub(v.LastSeen) < 20*time.Second, LastSeen: v.LastSeen, ObservedIP: v.ObservedIP,
 				AgentVersion: v.AgentVersion, AgentEndpoint: v.AgentEndpoint, Capabilities: append([]string(nil), v.Capabilities...), UpgradeRequested: upgradeRequested, PolicyVersion: v.PolicyVersion, Traffic: v.Traffic,
 			})
@@ -1464,6 +1468,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			ShutdownEnabled       bool     `json:"shutdown_enabled"`
 			ShutdownPercent       int      `json:"shutdown_percent"`
 			MonthlyPrice          float64  `json:"monthly_price"`
+			BillingCycle          string   `json:"billing_cycle"`
 			Currency              string   `json:"currency"`
 			ExpireAt              string   `json:"expire_at"`
 			Tags                  []string `json:"tags"`
@@ -1472,7 +1477,7 @@ func (s *server) localNodes(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "bad json", http.StatusBadRequest)
 			return
 		}
-		cfg, err := validateNodeInput("", in.DisplayName, in.TrafficGB, in.TrafficDirection, in.TrafficResetDay, in.TrafficResetTZMinutes, in.ShutdownEnabled, in.ShutdownPercent, in.MonthlyPrice, in.Currency, in.ExpireAt, in.Tags)
+		cfg, err := validateNodeInput("", in.DisplayName, in.TrafficGB, in.TrafficDirection, in.TrafficResetDay, in.TrafficResetTZMinutes, in.ShutdownEnabled, in.ShutdownPercent, in.MonthlyPrice, in.BillingCycle, in.Currency, in.ExpireAt, in.Tags)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -1642,6 +1647,7 @@ func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
 	shutdownEnabled := old.ShutdownEnabled
 	shutdownPercent := old.ShutdownPercent
 	monthlyPrice := old.MonthlyPrice
+	billingCycle := old.BillingCycle
 	currency := old.Currency
 	expire := old.ExpireAt
 	tags := append([]string(nil), old.Tags...)
@@ -1670,6 +1676,9 @@ func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
 	if in.MonthlyPrice != nil {
 		monthlyPrice = *in.MonthlyPrice
 	}
+	if in.BillingCycle != nil {
+		billingCycle = *in.BillingCycle
+	}
 	if in.Currency != nil {
 		currency = *in.Currency
 	}
@@ -1680,7 +1689,7 @@ func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
 		tags = append([]string(nil), (*in.Tags)...)
 	}
 
-	updated, err := validateNodeInput(old.ID, displayName, trafficGB, direction, resetDay, resetTZ, shutdownEnabled, shutdownPercent, monthlyPrice, currency, expire, tags)
+	updated, err := validateNodeInput(old.ID, displayName, trafficGB, direction, resetDay, resetTZ, shutdownEnabled, shutdownPercent, monthlyPrice, billingCycle, currency, expire, tags)
 	if err != nil {
 		return nodeConfig{}, err
 	}
@@ -1700,7 +1709,13 @@ func mergeNodeUpdate(old nodeConfig, in nodeUpdateInput) (nodeConfig, error) {
 	return updated, nil
 }
 
-func validateNodeInput(id, displayName string, trafficGB float64, direction string, resetDay, resetTZ int, shutdownEnabled bool, shutdownPercent int, monthlyPrice float64, currency, expire string, tags []string) (nodeConfig, error) {
+// Legacy nodes without billing_cycle continue to use monthly billing.
+func validBillingCycleOrMonthly(cycle string) string {
+  if strings.TrimSpace(cycle) == "" { return "monthly" }
+  return strings.ToLower(strings.TrimSpace(cycle))
+}
+
+func validateNodeInput(id, displayName string, trafficGB float64, direction string, resetDay, resetTZ int, shutdownEnabled bool, shutdownPercent int, monthlyPrice float64, billingCycle, currency, expire string, tags []string) (nodeConfig, error) {
 	name := strings.TrimSpace(displayName)
 	if name == "" || len([]rune(name)) > 80 {
 		return nodeConfig{}, errors.New("invalid display name")
@@ -1730,6 +1745,10 @@ func validateNodeInput(id, displayName string, trafficGB float64, direction stri
 	if shutdownPercent < 50 || shutdownPercent > 100 {
 		return nodeConfig{}, errors.New("shutdown percent must be 50..100")
 	}
+	billingCycle = validBillingCycleOrMonthly(billingCycle)
+	if billingCycle != "monthly" && billingCycle != "yearly" {
+		return nodeConfig{}, errors.New("billing cycle must be monthly or yearly")
+	}
 	currency = strings.ToUpper(strings.TrimSpace(currency))
 	if currency == "" {
 		currency = "USD"
@@ -1744,7 +1763,7 @@ func validateNodeInput(id, displayName string, trafficGB float64, direction stri
 	return nodeConfig{
 		ID: id, DisplayName: name, MonthlyTrafficLimit: gbToBytes(trafficGB), TrafficDirection: direction,
 		TrafficResetDay: resetDay, TrafficResetTZMinutes: resetTZ, ShutdownEnabled: shutdownEnabled, ShutdownPercent: shutdownPercent,
-		MonthlyPrice: monthlyPrice, Currency: currency, ExpireAt: expire, Tags: cleanTags(tags),
+		MonthlyPrice: monthlyPrice, BillingCycle: billingCycle, Currency: currency, ExpireAt: expire, Tags: cleanTags(tags),
 	}, nil
 }
 
@@ -2546,6 +2565,11 @@ func nodeCurrencyInputPrompt(current string) string {
   return fmt.Sprintf("币种 [%s]（例如 USD/CNY/HKD/EUR/CAD/GBP，其他币种也可填写）: ", current)
 }
 
+func billingCycleLabel(cycle string) string {
+ if validBillingCycleOrMonthly(cycle)=="yearly" {return "年付"}
+ return "月付"
+}
+
 func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	curTraffic := ""
 	curDirection := "total"
@@ -2554,6 +2578,7 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	curShutdown := false
 	curShutdownPct := 95
 	curPrice := ""
+	curBillingCycle := "monthly"
 	curCurrency := "USD"
 	curExpire := ""
 	curTags := ""
@@ -2565,6 +2590,7 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 		curShutdown = current.ShutdownEnabled
 		curShutdownPct = current.ShutdownPercent
 		curPrice = trimFloat(current.MonthlyPrice)
+		curBillingCycle = validBillingCycleOrMonthly(current.BillingCycle)
 		curCurrency = current.Currency
 		curExpire = current.ExpireAt
 		curTags = strings.Join(current.Tags, ",")
@@ -2635,14 +2661,19 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	} else {
 		direction, resetDay, resetTZ, shutdown, shutdownPct = "total", 1, 0, false, 95
 	}
-	pricePrompt := "月租 [可选]: "
-	if current != nil {
-		pricePrompt = fmt.Sprintf("月租 [%s]: ", curPrice)
-	}
-	priceRaw := prompt(r, pricePrompt)
-	if priceRaw == "" {
-		priceRaw = curPrice
-	}
+	fmt.Printf("VPS 付款周期：1=月付  2=年付 [当前 %s]\n", billingCycleLabel(curBillingCycle))
+  billingCycle:=curBillingCycle
+  if v:=prompt(r,"选择 [回车保持]: ");v!="" {
+    switch v {
+    case "1": billingCycle="monthly"
+    case "2": billingCycle="yearly"
+    default: fmt.Println("付款周期选择无效，保持原值。")
+    }
+  }
+  pricePrompt := fmt.Sprintf("%s金额 [可选]: ", billingCycleLabel(billingCycle))
+  if current != nil { pricePrompt=fmt.Sprintf("%s金额 [%s]: ", billingCycleLabel(billingCycle),curPrice) }
+  priceRaw:=prompt(r,pricePrompt)
+  if priceRaw=="" { priceRaw=curPrice }
 	currencyPrompt := nodeCurrencyInputPrompt(curCurrency)
 	currency := prompt(r, currencyPrompt)
 	if currency == "" {
@@ -2673,7 +2704,7 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	}
 	return map[string]any{
 		"traffic_gb": traffic, "traffic_direction": direction, "traffic_reset_day": resetDay, "traffic_reset_tz_minutes": resetTZ,
-		"shutdown_enabled": shutdown, "shutdown_percent": shutdownPct, "monthly_price": parseFloat(priceRaw), "currency": currency,
+		"shutdown_enabled": shutdown, "shutdown_percent": shutdownPct, "monthly_price": parseFloat(priceRaw), "billing_cycle": billingCycle, "currency": currency,
 		"expire_at": expire, "tags": tags,
 	}
 }
@@ -2787,11 +2818,23 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 		}
 	}
 
-	priceCurrent := "未设置"
-	if n.MonthlyPrice > 0 {
+	billingCycle:=validBillingCycleOrMonthly(n.BillingCycle)
+  fmt.Printf("VPS 付款周期：1=月付  2=年付 [当前 %s]\n", billingCycleLabel(billingCycle))
+  if v:=prompt(r,"选择 [回车保持]: ");v!="" {
+    switch v {
+    case "1": billingCycle="monthly"
+    case "2": billingCycle="yearly"
+    default:
+      fmt.Println("付款周期选择无效，未做任何修改。")
+      return
+    }
+    body["billing_cycle"]=billingCycle
+  }
+  priceCurrent := "未设置"
+  if n.MonthlyPrice > 0 {
 		priceCurrent = trimFloat(n.MonthlyPrice)
 	}
-	if v := prompt(r, fmt.Sprintf("月租 [%s]（- 清除）: ", priceCurrent)); v != "" {
+	if v := prompt(r, fmt.Sprintf("%s金额 [%s]（- 清除）: ", billingCycleLabel(billingCycle),priceCurrent)); v != "" {
 		if v == "-" {
 			body["monthly_price"] = float64(0)
 		} else if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err != nil || f < 0 {
