@@ -84,14 +84,20 @@
               <option value="video">影视 / IPTV</option><option value="ai">AI 服务</option><option value="domain">域名 / 云服务</option><option value="software">软件 / App</option><option value="other">其他</option>
             </select></label>
             <label>金额 <input id="subEditAmount" type="text" inputmode="decimal" required placeholder="例如 9.99"></label>
-            <label>币种 <input id="subEditCurrency" type="text" maxlength="3" pattern="[A-Za-z]{3}" required value="USD" autocapitalize="characters" placeholder="USD / JPY / CNY"></label>
+            <label>币种 <select id="subEditCurrency" required aria-label="选择订阅币种"></select></label>
             <label>付款周期 <select id="subEditCycle">
               <option value="monthly">月付</option><option value="quarterly">季付</option><option value="yearly">年付</option><option value="custom">自定义天数</option><option value="long_term">长期</option>
             </select></label>
             <label id="subEditCustomWrap" class="hidden">自定义周期（天） <input id="subEditCustomDays" type="number" min="1" max="3650" step="1"></label>
             <label id="subEditDueWrap">到期日期 <input id="subEditDue" type="date"></label>
             <label>订阅状态 <select id="subEditStatus"><option value="active">有效</option><option value="paused">暂停</option><option value="cancelled">取消</option><option value="expired">到期</option></select></label>
-            <label>时区 <input id="subEditZone" type="text" maxlength="64" value="Asia/Tokyo" required placeholder="Asia/Tokyo"></label>
+            <label>时区 <select id="subEditZone" required>
+              <option value="Asia/Tokyo">JP · 日本 (Asia/Tokyo)</option>
+              <option value="America/Los_Angeles">US · 西部 (洛杉矶)</option>
+              <option value="America/New_York">US · 东部 (纽约)</option>
+              <option value="Asia/Shanghai">CN · 中国 (上海 / 北京)</option>
+              <option value="Europe/Berlin">DE · 德国 (柏林)</option>
+            </select></label>
             <label class="sub-check"><input id="subEditAuto" type="checkbox"> 自动续费（仅标记，不执行扣款）</label>
             <label class="sub-wide">标签（逗号分隔，最多 8 个） <input id="subEditTags" type="text" placeholder="家庭, 影音"></label>
             <label class="sub-wide">备注（不填凭据） <textarea id="subEditNotes" maxlength="1000" rows="2" placeholder="选填"></textarea></label>
@@ -103,7 +109,7 @@
           <form id="subRenewForm" class="sub-edit-grid">
             <label>实际付款日期 <input id="subRenewDate" type="date" required></label>
             <label>实际付款金额 <input id="subRenewAmount" type="text" inputmode="decimal" required></label>
-            <label>付款币种 <input id="subRenewCurrency" type="text" maxlength="3" pattern="[A-Za-z]{3}" required autocapitalize="characters"></label>
+            <label>付款币种 <select id="subRenewCurrency" required aria-label="选择付款币种"></select></label>
             <label id="subRenewDueWrap">续费后新到期日（可留空） <input id="subRenewDue" type="date"></label>
             <label class="sub-wide">备注（选填） <textarea id="subRenewNotes" maxlength="240" rows="2"></textarea></label>
             <div class="sub-form-actions sub-wide"><button id="subRenewSave" class="sub-button sub-primary" type="submit">确认记录续费</button><button id="subRenewCancel" class="sub-button sub-ghost" type="button">取消</button></div>

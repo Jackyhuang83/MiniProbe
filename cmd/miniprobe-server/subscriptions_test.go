@@ -96,6 +96,18 @@ func TestSubscriptionValidationCurrencyAndDates(t *testing.T){
  bad=sampleSubscription();bad.Cycle="custom";bad.CustomDays=0
  if _,err:=validateSubscription(bad);err==nil{t.Fatal("invalid custom period accepted")}
 }
+func TestSubscriptionTimezoneChoicesWorkWithoutExternalZoneInfo(t *testing.T) {
+ // Slim Docker images need valid IANA zones even when OS tzdata is missing.
+ t.Setenv("ZONEINFO",filepath.Join(t.TempDir(),"missing-zoneinfo.zip"))
+ for _,zone:=range []string{"Asia/Tokyo","America/Los_Angeles","America/New_York","Asia/Shanghai","Europe/Berlin"}{
+  rec:=sampleSubscription();rec.TimeZone=zone
+  got,err:=validateSubscription(rec)
+  if err!=nil||got.TimeZone!=zone{t.Fatalf("valid timezone %s rejected: %v",zone,err)}
+ }
+ rec:=sampleSubscription();rec.TimeZone="Invalid/Not_A_Zone"
+ if _,err:=validateSubscription(rec);err==nil{t.Fatal("invalid IANA timezone must be rejected")}
+}
+
 func TestSubscriptionReadAlwaysOwnerOnly(t *testing.T){
  for _,mode:=range []string{dashboardPublic,dashboardProtected,dashboardDisabled}{
   t.Run(mode,func(t *testing.T){

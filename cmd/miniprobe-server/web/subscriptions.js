@@ -14,6 +14,44 @@
   const categoryIcon = {vps:"▣",video:"▶",ai:"✧",domain:"◎",software:"▦",other:"◇"};
   const statusText = {active:"有效",paused:"已暂停",cancelled:"已取消",expired:"已到期"};
   const cycleText = {monthly:"月度",quarterly:"季度",yearly:"年度",custom:"自定义",long_term:"长期"};
+
+  // Current ISO 4217 legal-tender currencies/territories, not only a short favorites list.
+  // Stored as codes so the form works without remote APIs and remains usable offline.
+  const currencyCodes = "AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CNY COP CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD XCG XOF XPF YER ZAR ZMW ZWG".split(" ");
+  const currencyFavorites = ["JPY","USD","CNY","EUR","HKD","TWD","GBP","KRW","SGD","INR","TRY","BRL","NGN","AUD","CAD","CHF"];
+  const timezoneChoices = ["Asia/Tokyo","America/Los_Angeles","America/New_York","Asia/Shanghai","Europe/Berlin"];
+  function currencyDisplayName(code) {
+    try {
+      if (typeof Intl.DisplayNames === "function") {
+        return new Intl.DisplayNames(["zh-CN"],{type:"currency"}).of(code)||code;
+      }
+    } catch (_) {}
+    return code;
+  }
+  function initCurrencySelectors() {
+    const all = [...currencyFavorites,...currencyCodes.filter(code=>!currencyFavorites.includes(code)).sort()];
+    for (const id of ["subEditCurrency","subRenewCurrency"]) {
+      const select=$(id);
+      for (const code of all) {
+        const option=el("option","",code+" · "+currencyDisplayName(code));
+        option.value=code;
+        select.append(option);
+      }
+      select.value="USD";
+    }
+  }
+  // Keep historical records editable even if they contain a legacy currency or timezone
+  // outside today's curated lists; new records only show the five requested timezones.
+  function chooseStoredValue(id,value,known) {
+    const chosen=String(value||"").trim();
+    if (chosen && !known.includes(chosen)) {
+      const option=el("option","",chosen+" · 原有记录");
+      option.value=chosen;
+      $(id).append(option);
+    }
+    $(id).value=chosen;
+  }
+
   // Node settings currently provide a monthly price, not the actual billing interval or renewal mode.
   // Never claim that a VPS is monthly-billed or manually renewed when the source did not say so.
   function billingBadge(item) {
@@ -273,13 +311,13 @@
     $("subEditorTitle").textContent=editingID?"编辑订阅":"添加订阅";
     $("subEditName").value=item?.name||"";
     $("subEditCategory").value=item?.category||"video";
-    $("subEditCurrency").value=item?.currency||"USD";
+    chooseStoredValue("subEditCurrency",item?.currency||"USD",currencyCodes);
     $("subEditAmount").value=item?amountRaw(item):"";
     $("subEditCycle").value=item?.cycle||"monthly";
     $("subEditCustomDays").value=item?.custom_days||"";
     $("subEditDue").value=item?.due_date||"";
     $("subEditStatus").value=item?.status||"active";
-    $("subEditZone").value=item?.time_zone||"Asia/Tokyo";
+    chooseStoredValue("subEditZone",item?.time_zone||"Asia/Tokyo",timezoneChoices);
     $("subEditAuto").checked=!!item?.auto_renew;
     $("subEditTags").value=(item?.tags||[]).join(", ");
     $("subEditNotes").value=item?.notes||"";
@@ -297,7 +335,7 @@
     $("subRenewDue").value="";
     $("subRenewHint").textContent=canChangeDue?"可填写续费后的新到期日；不填写则只追加付款记录。":"VPS 到期日仍由节点菜单管理；这里只记录实际付款。";
     $("subRenewDate").value=todayAt(item.time_zone);
-    $("subRenewCurrency").value=item.currency||"USD";
+    chooseStoredValue("subRenewCurrency",item.currency||"USD",currencyCodes);
     $("subRenewAmount").value=amountRaw(item);
     $("subRenewNotes").value="";
     reveal("subRenewEditor");
@@ -490,5 +528,6 @@
       await mutate("/renewals","POST",data,"续费记录已保存。",$("subRenewSave"));
     }catch(e){alertText(e.message);}
   });
+  initCurrencySelectors();
   init();
 })();

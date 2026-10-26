@@ -363,3 +363,18 @@ func TestEmbeddedDashboardUsesServerVersion(t *testing.T) {
 		}
 	}
 }
+
+
+// The same explicit examples must appear when creating and editing VPS nodes.
+func TestNodeCurrencyPromptExamples(t *testing.T) {
+  for _,tc:=range []struct{currency string;want string}{
+    {"USD","币种 [USD]"},{"GBP","币种 [GBP]"},{"CNY","币种 [CNY]"},
+  } {
+    prompt:=nodeCurrencyInputPrompt(tc.currency)
+    if !strings.Contains(prompt,tc.want){t.Fatalf("current value not preserved: %q",prompt)}
+    for _,code:=range []string{"USD","CNY","HKD","EUR","CAD","GBP"} {
+      if !strings.Contains(prompt,code){t.Fatalf("missing hint %s in %q",code,prompt)}
+    }
+    if strings.Contains(prompt,"GBD"){t.Fatalf("nonexistent currency code leaked into prompt: %q",prompt)}
+  }
+}

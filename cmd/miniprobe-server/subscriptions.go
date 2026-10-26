@@ -20,6 +20,7 @@ import (
  "strconv"
  "strings"
  "time"
+ _ "time/tzdata" // Bundle IANA zones for minimal Docker images without /usr/share/zoneinfo.
  "unicode/utf8"
 )
 
