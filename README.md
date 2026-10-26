@@ -2,7 +2,7 @@
 
 MiniProbe 是一个面向个人 VPS 集群的轻量监控探针，重点支持普通 VPS、NAT VPS、IPv6-only VPS，并把线路延迟、丢包和流量安全放在第一优先级。
 
-当前稳定版：`v0.4.40`（订阅时区与币种表单修复）；上一稳定版：`v0.4.39`
+当前稳定版：`v0.4.41`（VPS 月付 / 年付与实际金额）；上一稳定版：`v0.4.40`
 
 GitHub：`https://github.com/Jackyhuang83/MiniProbe`
 
