@@ -26,7 +26,8 @@ const data=[
   {source:"manual",name:"年度影视",category:"video",amount_minor:12000,currency:"CNY",cycle:"yearly",auto_renew:true,status:"active",due_date:"2030-01-01",time_zone:"Asia/Tokyo"},
   {source:"manual",name:"月度 AI",category:"ai",amount_minor:2000,currency:"USD",cycle:"monthly",auto_renew:false,status:"active",due_date:"2030-01-01",time_zone:"Asia/Tokyo"},
   {source:"manual",name:"九十天方案",category:"software",amount_minor:9900,currency:"USD",cycle:"custom",custom_days:90,auto_renew:false,status:"active",due_date:"2030-01-01",time_zone:"Asia/Tokyo"},
-  {source:"vps",node_id:"node-a",name:"真实 VPS",category:"vps",amount_minor:1000,currency:"USD",cycle:"monthly",auto_renew:false,status:"active",due_date:"2030-01-01",time_zone:"Asia/Tokyo"}
+  {source:"vps",node_id:"node-a",name:"真实 VPS",category:"vps",amount_minor:1000,currency:"USD",cycle:"monthly",auto_renew:false,status:"active",due_date:"2030-01-01",time_zone:"Asia/Tokyo"},
+  {source:"vps",node_id:"node-b",name:"年付 VPS",category:"vps",amount_minor:12000,currency:"USD",cycle:"yearly",auto_renew:false,status:"active",due_date:"2030-01-01",time_zone:"Asia/Tokyo"}
 ];
 const fetch=async url=>({ok:true,json:async()=>url.endsWith("/session")?{secure:true,enabled:true,authenticated:true}:{items:data}});
 const source=fs.readFileSync(path.join(__dirname,"..","cmd","miniprobe-server","web","subscriptions.js"),"utf8");
@@ -36,7 +37,7 @@ const findClass=(el,name)=>el.className.split(" ").includes(name)||(el.children|
 (async()=>{
   for(let n=0;n<4;n++) await new Promise(resolve=>setImmediate(resolve));
   const cards=elements.get("subCards").children;
-  assert.equal(cards.length,4,"subscription cards loaded");
+  assert.equal(cards.length,5,"subscription cards loaded");
   assert.match(flattened(cards[0]),/年度/);
   assert.match(flattened(cards[0]),/自动续费/);
   assert.ok(findClass(cards[0],"yearly"));
@@ -48,6 +49,10 @@ const findClass=(el,name)=>el.className.split(" ").includes(name)||(el.children|
   assert.match(flattened(cards[3]),/续费方式未设置/);
   assert.doesNotMatch(flattened(cards[3]),/手动续费|自动续费/,"never invent VPS renewal mode");
   assert.match(flattened(cards[3]),/节点月租金额/);
+  assert.match(flattened(cards[4]),/年付 VPS/);
+  assert.match(flattened(cards[4]),/年付/);
+  assert.match(flattened(cards[4]),/节点年付金额/);
+  assert.doesNotMatch(flattened(cards[4]),/月租金额|自动续费|手动续费/);
   // Verify first-time setup explains Docker container menus accurately.
   const setupElements=new Map();
   const setupDocument={

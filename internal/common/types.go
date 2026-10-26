@@ -215,6 +215,7 @@ type NodeView struct {
 	ShutdownEnabled     bool      `json:"shutdown_enabled"`
 	ShutdownPercent     int       `json:"shutdown_percent"`
 	MonthlyPrice        float64   `json:"monthly_price"`
+	BillingCycle        string    `json:"billing_cycle,omitempty"`
 	Currency            string    `json:"currency"`
 	ExpireAt            string    `json:"expire_at"`
 	Tags                []string  `json:"tags"`
