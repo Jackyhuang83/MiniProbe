@@ -394,3 +394,28 @@ func TestNodeBillingCycleLegacyAndYearly(t *testing.T) {
  unknown:="biannual"
  if _,err=mergeNodeUpdate(old,nodeUpdateInput{ID:"legacy",BillingCycle:&unknown});err==nil {t.Fatal("invalid node billing cycle accepted")}
 }
+
+func TestNodeTagsUnicodeAndInvalidBytes(t *testing.T) {
+ valid:=[]string{"日本住宅宽带","测试标签 👍","香港・高质量 / 影音","简体中文、繁體中文"}
+ if err:=validateNodeTags(valid);err!=nil{t.Fatalf("valid CJK and emoji tags rejected: %v",err)}
+ for _,bad:=range []struct{name string;tags []string}{
+  {"broken UTF-8",[]string{string([]byte{0xe4,0xb8})}},
+  {"replacement rune",[]string{"乱码\uFFFD"}},
+  {"escape control",[]string{"\x1b[31mtext"}},
+  {"too long",[]string{strings.Repeat("中文",16)}},
+  {"too many",[]string{"1","2","3","4","5","6","7","8","9"}},
+ } {
+  t.Run(bad.name,func(t *testing.T){if err:=validateNodeTags(bad.tags);err==nil{t.Fatal("invalid tags accepted")}})
+ }
+}
+
+func TestNodeTagsRejectInvalidUTF8BeforeJSONReplacement(t *testing.T) {
+ // Go's JSON decoder replaces malformed bytes with U+FFFD. Node validation
+ // must refuse this payload rather than persist garbled text.
+ s:=subscriptionTestServer(t)
+ badJSON:=[]byte(`{"display_name":"probe","tags":["` + string([]byte{0xff}) + `"]}`)
+ w:=httptest.NewRecorder()
+ s.localNodes(w,httptest.NewRequest(http.MethodPost,"http://unix/v1/nodes",strings.NewReader(string(badJSON))))
+ if w.Code!=http.StatusBadRequest{t.Fatalf("malformed UTF-8 must fail, got %d: %s",w.Code,w.Body.String())}
+ if len(s.db.Nodes)!=0{t.Fatal("broken tags persisted to node database")}
+}
