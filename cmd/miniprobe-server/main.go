@@ -2541,6 +2541,11 @@ func manageAddNode(r *bufio.Reader, c *localClient) {
 	fmt.Println(out.InstallCommand)
 }
 
+// The bracketed currency is the current value, not a restriction to USD.
+func nodeCurrencyInputPrompt(current string) string {
+  return fmt.Sprintf("币种 [%s]（例如 USD/CNY/HKD/EUR/CAD/GBP，其他币种也可填写）: ", current)
+}
+
 func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	curTraffic := ""
 	curDirection := "total"
@@ -2638,7 +2643,7 @@ func promptNodePolicy(r *bufio.Reader, current *adminNodeView) map[string]any {
 	if priceRaw == "" {
 		priceRaw = curPrice
 	}
-	currencyPrompt := fmt.Sprintf("币种 [%s]: ", curCurrency)
+	currencyPrompt := nodeCurrencyInputPrompt(curCurrency)
 	currency := prompt(r, currencyPrompt)
 	if currency == "" {
 		currency = curCurrency
@@ -2796,7 +2801,7 @@ func manageModifyNode(r *bufio.Reader, c *localClient) {
 			body["monthly_price"] = f
 		}
 	}
-	if v := prompt(r, fmt.Sprintf("币种 [%s]: ", n.Currency)); v != "" {
+	if v := prompt(r, nodeCurrencyInputPrompt(n.Currency)); v != "" {
 		body["currency"] = v
 	}
 	expireCurrent := expireDisplay(n.ExpireAt)
