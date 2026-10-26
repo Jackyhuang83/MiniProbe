@@ -18,7 +18,7 @@
   // Current ISO 4217 legal-tender currencies/territories, not only a short favorites list.
   // Stored as codes so the form works without remote APIs and remains usable offline.
   const currencyCodes = "AED AFN ALL AMD AOA ARS AUD AWG AZN BAM BBD BDT BGN BHD BIF BMD BND BOB BRL BSD BTN BWP BYN BZD CAD CDF CHF CLP CNY COP CRC CUP CVE CZK DJF DKK DOP DZD EGP ERN ETB EUR FJD FKP GBP GEL GHS GIP GMD GNF GTQ GYD HKD HNL HTG HUF IDR ILS INR IQD IRR ISK JMD JOD JPY KES KGS KHR KMF KPW KRW KWD KYD KZT LAK LBP LKR LRD LSL LYD MAD MDL MGA MKD MMK MNT MOP MRU MUR MVR MWK MXN MYR MZN NAD NGN NIO NOK NPR NZD OMR PAB PEN PGK PHP PKR PLN PYG QAR RON RSD RUB RWF SAR SBD SCR SDG SEK SGD SHP SLE SOS SRD SSP STN SYP SZL THB TJS TMT TND TOP TRY TTD TWD TZS UAH UGX USD UYU UZS VES VND VUV WST XAF XCD XCG XOF XPF YER ZAR ZMW ZWG".split(" ");
-  const currencyFavorites = ["JPY","USD","CNY","EUR","HKD","TWD","GBP","KRW","SGD","AUD","CAD","CHF"];
+  const currencyFavorites = ["JPY","USD","CNY","EUR","HKD","TWD","GBP","KRW","SGD","INR","TRY","BRL","NGN","AUD","CAD","CHF"];
   const timezoneChoices = ["Asia/Tokyo","America/Los_Angeles","America/New_York","Asia/Shanghai","Europe/Berlin"];
   function currencyDisplayName(code) {
     try {

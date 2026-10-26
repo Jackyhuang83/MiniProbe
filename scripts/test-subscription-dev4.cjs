@@ -85,6 +85,9 @@ function submit(id){return $(id).events.submit({preventDefault(){}})}
   assert.ok(values.includes(code),"missing currency "+code);
  }
  assert.equal(new Set(values).size,values.length,"currency options must not duplicate");
+ const favorites=["JPY","USD","CNY","EUR","HKD","TWD","GBP","KRW","SGD","INR","TRY","BRL","NGN","AUD","CAD","CHF"];
+ assert.deepEqual(values.slice(0,favorites.length),favorites,"frequently used currencies must appear first in order");
+ assert.deepEqual(renewCurrencyChoices.slice(0,favorites.length).map(x=>x.value),favorites,"renewal currency picker keeps frequent choices first");
  assert.ok(editCurrencyChoices.some(x=>x.value==="JPY"&&x.textContent.includes("·")),"currency labels must be human readable");
  const zoneOptions=[...htmlTemplate.matchAll(/<option value="([^"]+)">(?:JP|US|CN|DE) · /g)].map(m=>m[1]);
  assert.deepEqual(zoneOptions,[
