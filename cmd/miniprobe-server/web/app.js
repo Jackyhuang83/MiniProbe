@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.42';
+const UI_VERSION='0.4.43';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
