@@ -85,3 +85,21 @@ func TestTelegramSubscriptionListIsReadOnlyAndLimited(t *testing.T){
  if strings.Contains(message,"已停用")||strings.Contains(message,"秘密 Token abc"){t.Fatal("inactive or no-due subscriptions included")}
  if !strings.Contains(message,"只读列表"){t.Fatal("list must be clearly read-only")}
 }
+
+func TestTelegramInteractiveReminderKeepsDurableDedup(t *testing.T){
+ s:=subscriptionTestServer(t)
+ dev2ManualRecord(s,"sub-0123456789abcdef","2030-10-30")
+ s.subscriptions.RemindersEnabled=true
+ s.db.Settings.Telegram=telegramConfig{Enabled:true,BotToken:"test",ChatID:"12345"}
+ now:=time.Date(2030,10,23,13,0,0,0,time.UTC)
+ calls:=0
+ send:=func(item subscriptionView,remaining int)error{
+  calls++
+  if item.ID!="sub-0123456789abcdef"||remaining!=7{t.Fatalf("rich sender got wrong record or days: %+v %d",item,remaining)}
+  return nil
+ }
+ if err:=s.processSubscriptionRemindersDelivery(now,send);err!=nil{t.Fatal(err)}
+ if err:=s.processSubscriptionRemindersDelivery(now.Add(10*time.Minute),send);err!=nil{t.Fatal(err)}
+ if calls!=1{t.Fatalf("interactive reminders duplicated: %d",calls)}
+ if len(s.subscriptions.Receipts)!=1||s.subscriptions.Receipts[0].DeliveredAt.IsZero(){t.Fatal("rich delivery must keep durable delivered receipt")}
+}
