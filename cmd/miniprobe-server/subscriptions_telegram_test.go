@@ -33,7 +33,8 @@ func TestTelegramSubscriptionMessageContainsAccurateCycleAndCurrency(t *testing.
 func TestTelegramSubscriptionURLPrefersCloudflareAccess(t *testing.T){
  access:=subscriptionAccessConfig{Enabled:true,Hostname:"subs.example.com",Team:"my-team",Audience:"0123456789abcdef0123456789abcdef0123456789abcdef",Email:"owner@example.com"}
  if got:=subscriptionTelegramURL(access,"https://probe.example.com");got!="https://subs.example.com/subscriptions.html"{t.Fatalf("Access hostname ignored: %q",got)}
- if got:=subscriptionTelegramURL(subscriptionAccessConfig{},"https://probe.example.com/path?secret=never");got!="https://probe.example.com/subscriptions.html"{t.Fatalf("unexpected fallback: %q",got)}
+ if got:=subscriptionTelegramURL(subscriptionAccessConfig{},"https://probe.example.com/path");got!="https://probe.example.com/subscriptions.html"{t.Fatalf("unexpected fallback: %q",got)}
+ if got:=subscriptionTelegramURL(subscriptionAccessConfig{},"https://probe.example.com/path?secret=never");got!=""{t.Fatalf("URL with unexpected query must be rejected: %q",got)}
  for _,raw:=range []string{"http://probe.example.com","https://evil@example.com","javascript:alert(1)","https://user:pass@example.com","https://example.com\\@evil.invalid"}{
   if got:=subscriptionTelegramURL(subscriptionAccessConfig{},raw);got!=""{t.Errorf("unsafe public URL allowed %q -> %q",raw,got)}
  }
