@@ -380,6 +380,7 @@ func main() {
 	go s.persistenceLoop()
 	go s.notificationLoop()
 	go s.subscriptionReminderLoop()
+	go s.subscriptionTelegramCallbackLoop()
 	go s.offlineMonitorLoop()
 	go s.trafficSummaryLoop()
 	go s.networkHistoryLoop()
