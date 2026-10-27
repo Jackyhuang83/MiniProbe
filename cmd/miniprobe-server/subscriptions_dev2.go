@@ -226,10 +226,16 @@ func retryDelay(attempts int)time.Duration{
  return time.Duration(hours)*time.Hour
 }
 func (s *server) subscriptionReminderLoop(){
- s.checkSubscriptionReminders(time.Now(),s.sendTelegram)
+ s.checkSubscriptionRemindersInteractive(time.Now())
  ticker:=time.NewTicker(time.Hour)
  defer ticker.Stop()
- for now:=range ticker.C{s.checkSubscriptionReminders(now,s.sendTelegram)}
+ for now:=range ticker.C{s.checkSubscriptionRemindersInteractive(now)}
+}
+func (s *server) checkSubscriptionRemindersInteractive(now time.Time){
+ if err:=s.processSubscriptionRemindersDelivery(now,s.sendSubscriptionTelegramReminder);err!=nil{
+  // Never log the private subscription name, amount, or Bot Token.
+  log.Printf("subscription reminders: rich delivery failed")
+ }
 }
 func (s *server) checkSubscriptionReminders(now time.Time,send func(string)error){
  if err:=s.processSubscriptionReminders(now,send);err!=nil{
@@ -237,7 +243,13 @@ func (s *server) checkSubscriptionReminders(now time.Time,send func(string)error
   log.Printf("subscription reminders: check failed (private store or delivery)")
  }
 }
+// Retain the injectable text-only path for legacy reminder/dedup regression tests.
 func (s *server) processSubscriptionReminders(now time.Time,send func(string)error)error{
+ return s.processSubscriptionRemindersDelivery(now,func(item subscriptionView,remaining int)error{
+  return send(subscriptionReminderMessage(item,remaining))
+ })
+}
+func (s *server) processSubscriptionRemindersDelivery(now time.Time,send func(subscriptionView,int)error)error{
  s.subscriptionReminderRunMu.Lock();defer s.subscriptionReminderRunMu.Unlock()
  s.mu.RLock()
  tg:=s.db.Settings.Telegram
@@ -286,7 +298,7 @@ func (s *server) processSubscriptionReminders(now time.Time,send func(string)err
   next.Receipts[index].LastAttempt=now.UTC()
   if err:=s.saveSubscriptionsLocked(next);err!=nil{s.subscriptionMu.Unlock();return err}
   s.subscriptionMu.Unlock()
-  if err:=send(subscriptionReminderMessage(item,remaining));err!=nil{continue}
+  if err:=send(item,remaining);err!=nil{continue}
   s.subscriptionMu.Lock()
   next=s.subscriptions
   next.Receipts=append([]subscriptionReminderReceipt(nil),next.Receipts...)
