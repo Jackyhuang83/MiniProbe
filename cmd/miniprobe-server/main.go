@@ -49,7 +49,7 @@ const (
 	cookieName           = "miniprobe_dashboard"
 	pbkdf2Iters          = 210000
 	databaseVer          = 6
-	serverVersion        = "0.4.43"
+	serverVersion        = "0.4.44-alpha"
 	agentTargetVersion   = "0.4.39"
 	selfUpdateCapability = "self-update-v1"
 	defaultListen        = ":28888"
@@ -235,6 +235,7 @@ type server struct {
 	subscriptionMu sync.RWMutex
 	subscriptionReminderRunMu sync.Mutex
 	subscriptions subscriptionStore
+	clipboard clipboardMemory
 	subscriptionAccessMu sync.RWMutex
 	subscriptionAccessFetchMu sync.Mutex
 	subscriptionAccess subscriptionAccessConfig
@@ -379,6 +380,7 @@ func main() {
 
 	go s.persistenceLoop()
 	go s.notificationLoop()
+	go s.clipboardCleanupLoop()
 	go s.subscriptionReminderLoop()
 	go s.subscriptionTelegramCallbackLoop()
 	go s.offlineMonitorLoop()
@@ -406,6 +408,7 @@ func main() {
 	publicMux.HandleFunc("/api/v1/subscriptions", s.subscriptionRead)
 	publicMux.HandleFunc("/api/v1/subscriptions/manage", s.subscriptionWebManage)
 	publicMux.HandleFunc("/api/v1/subscriptions/renewals", s.subscriptionWebRenewal)
+	publicMux.HandleFunc("/api/v1/subscriptions/clipboard", s.clipboardAPI)
 	publicMux.HandleFunc("/api/v1/dashboard/session", s.dashboardSessionInfo)
 	publicMux.HandleFunc("/api/v1/dashboard/login", s.dashboardLogin)
 	publicMux.HandleFunc("/api/v1/dashboard/logout", s.dashboardLogout)
@@ -937,6 +940,9 @@ func legacyDashboardTarget(path string) (string, bool) {
 	if !hasSlash || relative == "" || relative == "index.html" {
 		return target + "/", true
 	}
+	if relative == "clipboard.html" {
+		return target + "/clipboard.html", true
+	}
 	if relative == "subscriptions.html" {
 		return target + "/subscriptions.html", true
 	}
@@ -955,9 +961,11 @@ func legacyDashboardTarget(path string) (string, bool) {
 func (s *server) dashboardAssets(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		clipboardAsset := path == "/clipboard.html" || path == "/clipboard.js" || path == "/clipboard.css" ||
+			strings.HasSuffix(path, "/clipboard.html") || strings.HasSuffix(path, "/clipboard.js") || strings.HasSuffix(path, "/clipboard.css")
 		subscriptionAsset := path == "/subscriptions.html" || path == "/subscriptions.js" || path == "/subscriptions.css" ||
 			strings.HasSuffix(path, "/subscriptions.html") || strings.HasSuffix(path, "/subscriptions.js") || strings.HasSuffix(path, "/subscriptions.css")
-		if s.dashboardMode() == dashboardDisabled && !subscriptionAsset {
+		if s.dashboardMode() == dashboardDisabled && !subscriptionAsset && !clipboardAsset {
 			http.NotFound(w, r)
 			return
 		}
@@ -1001,7 +1009,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				return
 			}
 			r.URL.Path = rel
-			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html" || rel == "/subscriptions.html"
+			isHTML := rel == "/index.html" || rel == "/network.html" || rel == "/traffic.html" || rel == "/subscriptions.html" || rel == "/clipboard.html"
 			isStatic := strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".css") || strings.HasSuffix(rel, ".svg")
 			if isHTML {
 				noStore(w)
@@ -1012,7 +1020,7 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 			return
 		}
 
-		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html" || path == "/subscriptions.html"
+		isHTML := path == "/" || path == "/index.html" || path == "/network.html" || path == "/traffic.html" || path == "/subscriptions.html" || path == "/clipboard.html"
 		isStatic := strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".css") || strings.HasSuffix(path, ".svg")
 		if isHTML && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
 			target := uiPrefix + "/"
@@ -1022,6 +1030,8 @@ func (s *server) dashboardAssets(next http.Handler) http.Handler {
 				target = uiPrefix + "/traffic.html"
 			} else if path == "/subscriptions.html" {
 				target = uiPrefix + "/subscriptions.html"
+			} else if path == "/clipboard.html" {
+				target = uiPrefix + "/clipboard.html"
 			}
 			q := r.URL.Query()
 			q.Del("v")
