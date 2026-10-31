@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#101722">
+  <title>MiniProbe · 剪贴板</title>
+  <link rel="stylesheet" href="/ui/0.4.44-alpha/clipboard.css">
+</head>
+<body>
+<header class="clip-header">
+  <a class="clip-brand" href="/ui/0.4.44-alpha/">MiniProbe</a>
+  <button type="button" id="clipMenu" class="clip-menu" aria-controls="clipNav" aria-expanded="false">☰ 菜单</button>
+  <nav class="clip-nav" id="clipNav" aria-label="主要导航">
+    <a href="/ui/0.4.44-alpha/">监控</a>
+    <a href="/ui/0.4.44-alpha/traffic.html">流量</a>
+    <a href="/ui/0.4.44-alpha/subscriptions.html">订阅</a>
+    <a class="active" aria-current="page" href="/ui/0.4.44-alpha/clipboard.html">剪贴板</a>
+  </nav>
+</header>
+<main class="clip-main">
+  <div class="clip-heading">
+    <div><div class="clip-eyebrow">CROSS-DEVICE CLIPBOARD</div><h1>剪贴板</h1><p>手机和电脑通过同一个 HTTPS 网页互传文字与链接。</p></div>
+    <button id="clipLogout" type="button" class="clip-button secondary hidden">退出</button>
+  </div>
+
+  <section class="clip-security" aria-labelledby="clipSafetyTitle">
+    <h2 id="clipSafetyTitle">⚠ 安全与隐私提醒</h2>
+    <div class="clip-safety-row"><strong>1. 数据删除与备份</strong>
+      <p>剪贴板数据默认不纳入自动备份。删除后会从当前存储中移除，但已有的系统快照或外部备份仍可能保留副本。</p>
+    </div>
+    <div class="clip-safety-row"><strong>2. 敏感信息保护</strong>
+      <p>请勿通过剪贴板传输 VPS 私钥、密码、长期 Token 等敏感凭据。服务器管理员或服务器被入侵时，存储的数据仍可能被读取。</p>
+    </div>
+    <div class="clip-safety-row"><strong>3. 24 小时自动清理与手动删除</strong>
+      <p>保存内容在 24 小时后自动过期，手动删除和自动清理均遵循相同的数据删除规则。首版只保存在 Server 内存中，不写入数据库或自动备份；Server 或 Docker 重启时内容会全部清空。</p>
+    </div>
+  </section>
+
+  <div id="clipNotice" role="status" aria-live="polite" class="clip-notice hidden"></div>
+
+  <section id="clipGate" class="clip-panel clip-gate">
+    <h2>登录剪贴板</h2>
+    <p>沿用 MiniProbe 订阅中心的独立认证，仅支持 HTTPS，不使用公开 Dashboard 权限。</p>
+    <form id="clipLoginForm">
+      <label for="clipPassword">订阅中心访问密码</label>
+      <input type="password" id="clipPassword" autocomplete="current-password" minlength="12" required placeholder="输入订阅中心密码">
+      <button class="clip-button primary" type="submit">登录</button>
+    </form>
+    <p class="clip-tip">忘记密码？请先到 <a href="/ui/0.4.44-alpha/subscriptions.html">订阅中心</a> 使用已配置的邮箱一次性验证码登录，再返回本页。</p>
+  </section>
+
+  <div id="clipWorkspace" class="hidden">
+    <section class="clip-panel">
+      <h2>新增内容</h2>
+      <form id="clipAddForm">
+        <label for="clipText">粘贴文字、网址或代码（最大 16 KiB）</label>
+        <textarea id="clipText" rows="5" maxlength="16384" placeholder="在这里粘贴，另一台设备打开页面即可复制…" required></textarea>
+        <div class="clip-actions"><span class="clip-muted">最多保留 50 条，24 小时自动清理</span><button id="clipAdd" class="clip-button primary" type="submit">＋ 保存内容</button></div>
+      </form>
+    </section>
+
+    <section class="clip-panel">
+      <div class="clip-actions clip-list-head">
+        <h2>最近保存 <span id="clipCount" class="clip-count"></span></h2>
+        <button id="clipClear" class="clip-button danger" type="button">清空全部</button>
+      </div>
+      <p id="clipEmpty" class="clip-muted">暂无记录。保存后，在另一台设备打开此页面即可复制。</p>
+      <div id="clipItems" class="clip-items" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+<script src="/ui/0.4.44-alpha/clipboard.js"></script>
+</body>
+</html>

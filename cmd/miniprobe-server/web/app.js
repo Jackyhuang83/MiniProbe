@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s);
-const UI_VERSION='0.4.43';
+const UI_VERSION='0.4.44-alpha';
 const UI_BASE=`/ui/${UI_VERSION}`;
 let dashboardMode='';
 
@@ -363,4 +363,9 @@ $('#logoutBtn').addEventListener('click',async()=>{
   show('loginView');
 });
 
+$('#navToggle').addEventListener('click',()=>{
+  const nav=$('#primaryNav');
+  const opened=nav.classList.toggle('nav-open');
+  $('#navToggle').setAttribute('aria-expanded',String(opened));
+});
 boot();

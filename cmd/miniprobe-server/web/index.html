@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>MiniProbe</title>
-  <link rel="stylesheet" href="/ui/0.4.43/style.css">
+  <link rel="stylesheet" href="/ui/0.4.44-alpha/style.css">
 </head>
 <body>
   <section id="loginView" class="login-wrap hidden">
@@ -24,9 +24,12 @@
     <header class="dashboard-header">
       <div class="dashboard-header-main">
         <span class="brand">MiniProbe</span>
-        <nav class="header-actions" aria-label="主要导航">
-          <a class="btn" href="/ui/0.4.43/traffic.html">流量统计</a>
-          <a class="btn" href="/ui/0.4.43/subscriptions.html">订阅中心</a>
+        <button id="navToggle" class="btn nav-toggle" type="button" aria-controls="primaryNav" aria-expanded="false">☰ 菜单</button>
+        <nav id="primaryNav" class="header-actions" aria-label="主要导航">
+          <a class="btn" aria-current="page" href="/ui/0.4.44-alpha/">监控</a>
+          <a class="btn" href="/ui/0.4.44-alpha/traffic.html">流量</a>
+          <a class="btn" href="/ui/0.4.44-alpha/subscriptions.html">订阅</a>
+          <a class="btn" href="/ui/0.4.44-alpha/clipboard.html">剪贴板</a>
           <button id="logoutBtn" class="btn hidden" type="button">退出</button>
         </nav>
       </div>
@@ -50,6 +53,6 @@
     </div>
   </section>
 
-  <script src="/ui/0.4.43/app.js"></script>
+  <script src="/ui/0.4.44-alpha/app.js"></script>
 </body>
 </html>
