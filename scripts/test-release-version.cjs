@@ -37,6 +37,9 @@ execFileSync("node", ["--check", "cmd/miniprobe-server/web/clipboard.js"], {stdi
 const clipboard = read("cmd/miniprobe-server/web/clipboard.html");
 assert.match(clipboard, /24 小时自动清理与手动删除/, "clipboard must show retention/deletion notice");
 assert.match(clipboard, /服务器管理员或服务器被入侵/, "clipboard must show sensitive-data notice");
+assert.match(clipboard, /不写入数据库，也不会纳入 MiniProbe 每日自动备份/, "clipboard must clarify memory-only storage");
+assert.match(clipboard, /其他设备刷新页面将无法再查看该内容/, "clipboard must clarify deletion visibility");
+assert.match(clipboard, /独立副本，这些副本不会随之删除/, "clipboard must clarify independent copies");
 const changelog = "CHANGELOG-v" + version + ".md";
 assert.ok(fs.statSync(changelog).isFile(), "Missing " + changelog);
 console.log("Release version consistency verified: v" + version);
