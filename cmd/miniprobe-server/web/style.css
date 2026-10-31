@@ -160,3 +160,15 @@ main{padding:10px;max-width:1450px;margin:auto}.grid{display:grid;grid-template-
   .header-stats{gap:5px 10px}
   .header-stat{font-size:10.5px}
 }
+
+/* Compact desktop navigation; mobile-only collapsible menu. */
+.dashboard-header-main .nav-toggle{display:none}
+.dashboard-header-main .header-actions{flex-wrap:nowrap}
+.dashboard-header-main .header-actions .btn{white-space:nowrap}
+@media(max-width:650px){
+  .dashboard-header-main{flex-wrap:wrap}
+  .dashboard-header-main .nav-toggle{display:inline-flex;margin-left:auto}
+  .dashboard-header-main .header-actions{display:none;flex-direction:column;align-items:stretch;width:100%;padding:8px 0;gap:5px}
+  .dashboard-header-main .header-actions.nav-open{display:flex}
+  .dashboard-header-main .header-actions .btn{text-align:left;padding:10px 12px}
+}
