@@ -69,3 +69,8 @@ textarea{resize:vertical;min-height:128px;line-height:1.6}
  .clip-list-head{flex-direction:row;align-items:center}
  .clip-list-head .clip-button{width:auto}
 }
+
+/* Keep the data-retention explanation readable on narrow phone screens. */
+.clip-safety-row ul{margin:8px 0 10px;padding-left:22px;color:#f0d4a9;font-size:13px;line-height:1.75}
+.clip-safety-row li{padding:2px 0}
+.clip-safety-row li strong,.clip-safety-row p strong{color:#ffe2b3}
