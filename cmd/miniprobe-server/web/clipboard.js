@@ -58,12 +58,18 @@
       await navigator.clipboard.writeText(text);
       notice("已复制到设备剪贴板。");
     } catch (_) {
-      // Copying may be restricted by browser permissions: show a selectable fallback.
-      const textarea = $("clipText");
-      textarea.value = text;
-      textarea.focus();
-      textarea.select();
-      notice("浏览器未允许自动复制，已将内容放到输入框并选中，请使用系统复制快捷键。", true);
+      // Never overwrite an unsaved draft when clipboard permissions are denied.
+      const fallback = document.createElement("textarea");
+      fallback.value = text;
+      fallback.style.position = "fixed";
+      fallback.style.left = "-9999px";
+      document.body.append(fallback);
+      fallback.focus();
+      fallback.select();
+      let ok = false;
+      try { ok = document.execCommand("copy"); } catch (_) {}
+      fallback.remove();
+      notice(ok ? "已复制到设备剪贴板。" : "浏览器未允许自动复制，请长按或选择记录中的文字手动复制。", !ok);
     }
   }
   function render(items) {
