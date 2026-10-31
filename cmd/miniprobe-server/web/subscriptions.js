@@ -1,6 +1,12 @@
 "use strict";
 (() => {
   const api = "/api/v1/subscriptions";
+  const menuButton = document.getElementById("subNavToggle");
+  menuButton?.addEventListener("click", () => {
+    const open = document.getElementById("subSideNav").classList.toggle("sub-menu-open");
+    menuButton.setAttribute("aria-expanded", String(open));
+  });
+
   const $ = id => document.getElementById(id);
   let items = [];
   let renewals = [];
