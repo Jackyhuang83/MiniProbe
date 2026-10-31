@@ -1,6 +1,7 @@
 "use strict";
 const fs = require("node:fs");
 const assert = require("node:assert/strict");
+const {execFileSync} = require("node:child_process");
 
 function read(path) {
   return fs.readFileSync(path, "utf8");
@@ -23,7 +24,7 @@ for (const file of jsFiles) {
   const content = read("cmd/miniprobe-server/web/" + file);
   assert.equal(capture(content, /const UI_VERSION='([^']+)'/, file), version);
 }
-const pages = ["index.html", "network.html", "traffic.html", "subscriptions.html"];
+const pages = ["index.html", "network.html", "traffic.html", "subscriptions.html", "clipboard.html"];
 for (const file of pages) {
   const content = read("cmd/miniprobe-server/web/" + file);
   const refs = [...content.matchAll(/\/ui\/([0-9]+\.[0-9]+\.[0-9]+(?:-[a-z0-9.]+)?)\//g)];
@@ -32,6 +33,10 @@ for (const file of pages) {
     assert.equal(refVersion, version, file + " stale UI asset reference");
   }
 }
+execFileSync("node", ["--check", "cmd/miniprobe-server/web/clipboard.js"], {stdio:"inherit"});
+const clipboard = read("cmd/miniprobe-server/web/clipboard.html");
+assert.match(clipboard, /24 小时自动清理与手动删除/, "clipboard must show retention/deletion notice");
+assert.match(clipboard, /服务器管理员或服务器被入侵/, "clipboard must show sensitive-data notice");
 const changelog = "CHANGELOG-v" + version + ".md";
 assert.ok(fs.statSync(changelog).isFile(), "Missing " + changelog);
 console.log("Release version consistency verified: v" + version);
